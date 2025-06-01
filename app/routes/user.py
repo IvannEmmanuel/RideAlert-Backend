@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from app.schemas.user import UserCreate, UserInDB, UserLogin
 from app.database import user_collection
 from app.models.user import user_helper
@@ -7,7 +7,8 @@ from app.utils.pasword_hashing import hash_password
 from app.utils.pasword_hashing import verify_password
 from app.utils.token import create_access_token
 from fastapi.responses import JSONResponse
-
+from app.dependencies.roles import admin_required
+from app.dependencies.roles import user_required
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -18,13 +19,14 @@ def create_user(user: UserCreate):
 
     user_dict = user.dict()
     user_dict["password"] = hash_password(user.password)  # hash here
+    user_dict["role"] = user.role or "user"
 
     result = user_collection.insert_one(user_dict)
     created_user = user_collection.find_one({"_id": result.inserted_id})
     return user_helper(created_user)
 
 @router.get("/{user_id}", response_model=UserInDB)
-def get_user(user_id: str):
+def get_user(user_id: str, get_current_user: dict = Depends(admin_required)): #admin only
     user = user_collection.find_one({"_id": ObjectId(user_id)})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -39,7 +41,8 @@ def login_user(login_data: UserLogin):
 
     token_data = {
         "user_id": str(user["_id"]),
-        "email": user["email"]
+        "email": user["email"],
+        "role": user["role"]
     }
 
     access_token = create_access_token(token_data)
@@ -53,6 +56,7 @@ def login_user(login_data: UserLogin):
             "email": user.get("email"),
             "gender": user.get("gender"),
             "birthday": user.get("birthday"),
-            "address": user.get("address")
+            "address": user.get("address"),
+            "role": user.get("role")
         }
     })
