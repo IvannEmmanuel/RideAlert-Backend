@@ -3,3 +3,8 @@ uvicorn
 pymongo
 email-validator
 python-dotenv
+pydantic
+bcrypt
+python-jose
+passlib[bcrypt]
+# Optional dependencies for additional features
