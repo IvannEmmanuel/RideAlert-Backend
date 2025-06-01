@@ -7,4 +7,5 @@ def user_helper(user) -> dict:
         "birthday": user["birthday"],
         "address": user["address"],
         "gender": user["gender"],
+        "role": user["role"]
     }
