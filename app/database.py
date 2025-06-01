@@ -17,3 +17,4 @@ except Exception as e:
 
 db = client["ridealertDB"]
 user_collection = db["users"]
+vehicle_collection = db["vehicles"]
