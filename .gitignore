@@ -1,0 +1,56 @@
+# Python-specific ignores
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+*.env
+*.egg-info/
+dist/
+build/
+*.whl
+pip-log.txt
+pip-delete-this-directory.txt
+
+# FastAPI-specific ignores
+*.log
+logs/
+*.cache
+.cache/
+*.pytest_cache/
+pytest_cache/
+
+# MongoDB-related ignores
+# Local MongoDB data directories (if running MongoDB locally)
+data/
+mongod.lock
+*.pid
+
+# IDE and editor files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Dependency directories
+node_modules/  # If you use any frontend tools
+
+# Testing and coverage
+.coverage
+coverage.xml
+*.cover
+*.py,cover
+htmlcov/
+
+# Miscellaneous
+*.bak
+*.swp
+*~
+*.tmp
