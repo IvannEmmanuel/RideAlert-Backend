@@ -38,7 +38,7 @@ async def update_location(websocket: WebSocket):
                 {"$set": {"location": location.dict()}}
             )
 
-            # ✅ Also update tracking_logs
+            # update tracking_logs
             try:
                 insert_gps_log(db, vehicle_id, location.latitude, location.longitude)
             except Exception as e:
