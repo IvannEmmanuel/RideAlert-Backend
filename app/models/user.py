@@ -1,5 +1,5 @@
 def user_helper(user) -> dict:
-    return {
+    user_data = {
         "id": str(user["_id"]),
         "first_name": user["first_name"],
         "last_name": user["last_name"],
@@ -9,3 +9,6 @@ def user_helper(user) -> dict:
         "gender": user["gender"],
         "role": user["role"]
     }
+    if "location" in user:
+        user_data["location"] = user["location"]
+    return user_data
