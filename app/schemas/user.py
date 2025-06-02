@@ -6,6 +6,10 @@ class UserRole(str, Enum):
     user = "user"
     admin = "admin"
 
+class Location(BaseModel):
+    latitude: float
+    longitude: float
+
 class UserBase(BaseModel):
     first_name: str
     last_name: str
@@ -14,6 +18,7 @@ class UserBase(BaseModel):
     address: str
     gender: str
     role: UserRole
+    location: Optional[Location] = None
 
 class UserCreate(UserBase):
     password: str

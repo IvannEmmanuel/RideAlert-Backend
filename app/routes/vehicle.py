@@ -1,24 +1,32 @@
 from fastapi import APIRouter, Depends, HTTPException
-from app.database import vehicle_collection
+from app.database import vehicle_collection, tracking_logs_collection
 from bson import ObjectId
 from app.dependencies.roles import user_required
 from app.schemas.vehicle import VehicleTrackResponse, Location, VehicleStatus, VehicleBase, VehicleInDB
 from app.dependencies.roles import admin_required
 from typing import List
+from datetime import datetime
 
 router = APIRouter(prefix="/vehicles", tags=["Vehicles"])
 
 @router.post("/create", response_model=VehicleInDB)
 def create_vehicle(vehicle: VehicleBase, current_user: dict = Depends(admin_required)):
-    # Check if vehicle with the same license plate already exists
     if vehicle_collection.find_one({"plate": vehicle.plate}):
         raise HTTPException(status_code=400, detail="Vehicle with this license plate already exists")
 
-    # Convert VehicleBase to dict for MongoDB
     vehicle_dict = vehicle.dict()
-
-    # Insert vehicle into MongoDB
     result = vehicle_collection.insert_one(vehicle_dict)
+
+    # ✅ Insert into tracking_logs
+    tracking_logs_collection.insert_one({
+        "vehicle_id": str(result.inserted_id),
+        "gps_data": [{
+            "latitude": vehicle.location.latitude,
+            "longitude": vehicle.location.longitude,
+            "timestamp": datetime.utcnow()
+        }]
+    })
+
     created_vehicle = vehicle_collection.find_one({"_id": result.inserted_id})
     if not created_vehicle:
         raise HTTPException(status_code=500, detail="Failed to create vehicle")

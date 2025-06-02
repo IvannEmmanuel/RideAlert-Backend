@@ -1,5 +1,7 @@
 from fastapi import WebSocket, WebSocketDisconnect, APIRouter
 from app.database import vehicle_collection
+from app.utils.tracking_logs import insert_gps_log
+from app.database import db
 from bson import ObjectId
 from app.schemas.vehicle import Location
 from pydantic import ValidationError
@@ -30,11 +32,18 @@ async def update_location(websocket: WebSocket):
                 await websocket.send_text("Invalid location format")
                 continue
 
-            # Update location in MongoDB
+            # Update vehicle's location in MongoDB
             result = vehicle_collection.update_one(
                 {"_id": oid},
                 {"$set": {"location": location.dict()}}
             )
+
+            # ✅ Also update tracking_logs
+            try:
+                insert_gps_log(db, vehicle_id, location.latitude, location.longitude)
+            except Exception as e:
+                await websocket.send_text(f"Error updating tracking log: {e}")
+                continue
 
             if result.modified_count == 1:
                 await websocket.send_text(f"Location updated for vehicle {vehicle_id}")
