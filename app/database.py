@@ -1,4 +1,3 @@
-# app/database.py
 from pymongo import MongoClient
 from dotenv import load_dotenv
 import os
@@ -18,3 +17,4 @@ except Exception as e:
 db = client["ridealertDB"]
 user_collection = db["users"]
 vehicle_collection = db["vehicles"]
+tracking_logs_collection = db["tracking_logs"]
