@@ -26,7 +26,7 @@ def create_user(user: UserCreate):
     return user_helper(created_user)
 
 @router.get("/{user_id}", response_model=UserInDB)
-def get_user(user_id: str, get_current_user: dict = Depends(admin_required)): #admin only
+def get_user(user_id: str):
     user = user_collection.find_one({"_id": ObjectId(user_id)})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
