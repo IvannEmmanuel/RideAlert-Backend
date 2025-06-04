@@ -1,9 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from app.database import vehicle_collection, tracking_logs_collection
 from bson import ObjectId
-from app.dependencies.roles import user_required
+from app.dependencies.roles import user_required, admin_required, user_or_admin_required
 from app.schemas.vehicle import VehicleTrackResponse, Location, VehicleStatus, VehicleBase, VehicleInDB
-from app.dependencies.roles import admin_required
 from typing import List
 from datetime import datetime
 
@@ -46,7 +45,7 @@ def create_vehicle(vehicle: VehicleBase, current_user: dict = Depends(admin_requ
     return VehicleInDB(**created_vehicle_dict)
 
 @router.get("/track/{id}", response_model=VehicleTrackResponse)
-def track_vehicle(id: str):
+def track_vehicle(id: str, current_user: dict = Depends(user_or_admin_required)):
     # Access the vehicles collection
     try:
         vehicle = vehicle_collection.find_one({"_id": ObjectId(id)})
@@ -72,7 +71,7 @@ def track_vehicle(id: str):
     )
 
 @router.get("/all", response_model=List[VehicleTrackResponse])
-def track_all_vehicles():
+def track_all_vehicles(current_user: dict = Depends(user_or_admin_required)):
     # Retrieve all vehicles from the collection
     vehicles = []
     for vehicle in vehicle_collection.find():
