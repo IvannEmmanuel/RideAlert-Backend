@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Body
 from app.schemas.user import UserCreate, UserInDB, UserLogin
 from app.database import user_collection
 from app.models.user import user_helper
@@ -7,13 +7,13 @@ from app.utils.pasword_hashing import hash_password
 from app.utils.pasword_hashing import verify_password
 from app.utils.token import create_access_token
 from fastapi.responses import JSONResponse
-from app.dependencies.roles import admin_required
-from app.dependencies.roles import user_required
+from app.dependencies.roles import admin_required, user_required, user_or_admin_required
+
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
 @router.post("/register", response_model=UserInDB)
-def create_user(user: UserCreate):
+def create_user(user: UserCreate, current_user: dict = Depends(user_or_admin_required)):
     if user_collection.find_one({"email": user.email}):
         raise HTTPException(status_code=400, detail="Email already registered")
 
@@ -26,14 +26,14 @@ def create_user(user: UserCreate):
     return user_helper(created_user)
 
 @router.get("/{user_id}", response_model=UserInDB)
-def get_user(user_id: str):
+def get_user(user_id: str, current_user: dict = Depends(user_or_admin_required)):
     user = user_collection.find_one({"_id": ObjectId(user_id)})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user_helper(user)
 
 @router.post("/login")
-def login_user(login_data: UserLogin):
+def login_user(login_data: UserLogin, current_user: dict = Depends(user_or_admin_required)):
     user = user_collection.find_one({"email": login_data.email})
 
     if not user or not verify_password(login_data.password, user["password"]):
@@ -61,3 +61,16 @@ def login_user(login_data: UserLogin):
             "location": user.get("location", {})
         }
     })
+
+@router.post("/fcm-token")
+async def save_fcm_token(
+    user_id: str = Body(...),
+    fcm_token: str = Body(...)
+):
+    result = user_collection.update_one(
+        {"_id": ObjectId(user_id)},
+        {"$set": {"fcm_token": fcm_token}}
+    )
+    if result.modified_count == 1:
+        return {"message": "FCM token saved"}
+    raise HTTPException(status_code=404, detail="User not found")
