@@ -34,3 +34,6 @@ class VehicleTrackResponse(BaseModel):
     location: Location
     available_seats: int
     status: VehicleStatus
+    route: str
+    driverName: str
+    plate: str
