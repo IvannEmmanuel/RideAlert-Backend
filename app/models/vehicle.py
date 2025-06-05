@@ -7,6 +7,6 @@ def vehicle_class(vehicle) -> dict:
         "available_seats": vehicle["available_seats"],
         "status": vehicle["status"],
         "route": vehicle["route"],
-        "driverName": vehicle("driverName"),
-        "plate_number": vehicle("plate_number")
+        "driverName": vehicle["driverName"],
+        "plate": vehicle["plate"]  # match your Pydantic model, not plate_number
     }
