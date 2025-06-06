@@ -140,6 +140,7 @@ async def update_user_location(websocket: WebSocket):
 @ws_router.websocket("/ws/track-vehicle")
 async def track_vehicle_ws(websocket: WebSocket):
     await websocket.accept()
+    vehicle_id = None
     try:
         data = await websocket.receive_json()
         vehicle_id = data.get("vehicle_id")
@@ -148,7 +149,6 @@ async def track_vehicle_ws(websocket: WebSocket):
             await websocket.close()
             return
 
-        # Register this websocket as a subscriber for this vehicle
         if vehicle_id not in vehicle_subscribers:
             vehicle_subscribers[vehicle_id] = []
         vehicle_subscribers[vehicle_id].append(websocket)
@@ -156,7 +156,10 @@ async def track_vehicle_ws(websocket: WebSocket):
         while True:
             await websocket.receive_text()  # Keep connection alive
     except WebSocketDisconnect:
-        # Remove from subscribers on disconnect
-        for subs in vehicle_subscribers.values():
+        if vehicle_id and vehicle_id in vehicle_subscribers:
+            subs = vehicle_subscribers[vehicle_id]
             if websocket in subs:
                 subs.remove(websocket)
+                if not subs:
+                    vehicle_subscribers.pop(vehicle_id)
+        print("Vehicle tracking client disconnected")
