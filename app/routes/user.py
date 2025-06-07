@@ -33,7 +33,7 @@ def get_user(user_id: str, current_user: dict = Depends(user_or_admin_required))
     return user_helper(user)
 
 @router.post("/login")
-def login_user(login_data: UserLogin, current_user: dict = Depends(user_or_admin_required)):
+def login_user(login_data: UserLogin):
     user = user_collection.find_one({"email": login_data.email})
 
     if not user or not verify_password(login_data.password, user["password"]):
