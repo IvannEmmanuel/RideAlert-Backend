@@ -13,7 +13,7 @@ from app.dependencies.roles import admin_required, user_required, user_or_admin_
 router = APIRouter(prefix="/users", tags=["Users"])
 
 @router.post("/register", response_model=UserInDB)
-def create_user(user: UserCreate, current_user: dict = Depends(user_or_admin_required)):
+def create_user(user: UserCreate):
     if user_collection.find_one({"email": user.email}):
         raise HTTPException(status_code=400, detail="Email already registered")
 
@@ -55,7 +55,6 @@ def login_user(login_data: UserLogin):
             "last_name": user.get("last_name"),
             "email": user.get("email"),
             "gender": user.get("gender"),
-            "birthday": user.get("birthday"),
             "address": user.get("address"),
             "role": user.get("role"),
             "location": user.get("location", {})
