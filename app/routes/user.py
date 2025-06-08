@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, Body
-from app.schemas.user import UserCreate, UserInDB, UserLogin
+from app.schemas.user import UserCreate, UserInDB, UserLogin, Location
 from app.database import user_collection
 from app.models.user import user_helper
 from bson import ObjectId
@@ -60,6 +60,26 @@ def login_user(login_data: UserLogin):
             "location": user.get("location", {})
         }
     })
+
+@router.post("/location")
+def update_location(
+    location: Location,
+    current_user: dict = Depends(user_or_admin_required)
+):
+    user_id = current_user.get("user_id") or current_user.get("_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="User ID not found in token")
+
+    result = user_collection.update_one(
+        {"_id": ObjectId(user_id)},
+        {"$set": {"location": location.dict()}}
+    )
+
+    if result.matched_count == 1:
+        return {"message": "Location updated successfully"}
+
+    raise HTTPException(status_code=404, detail="User not found")
+
 
 @router.post("/fcm-token")
 async def save_fcm_token(
