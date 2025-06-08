@@ -14,7 +14,6 @@ class UserBase(BaseModel):
     first_name: str
     last_name: str
     email: EmailStr
-    birthday: str
     address: str
     gender: str
     role: UserRole
@@ -36,7 +35,6 @@ class UserPublic(BaseModel):
     first_name: str
     last_name: str
     email: EmailStr
-    birthday: str
     gender: str
     address: str
     role: UserRole
