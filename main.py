@@ -18,7 +18,7 @@ app.add_middleware(
 app.include_router(user.router)
 app.include_router(vehicle.router)
 app.include_router(ws_router)
-app.include_router(notifications_router)  # Assuming notifications.router is defined in app/routes/notifications_router.py
+app.include_router(notifications_router) 
 # Include other routers as needed
 
 @app.get("/")
