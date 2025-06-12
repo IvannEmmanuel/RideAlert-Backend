@@ -8,7 +8,7 @@ def insert_gps_log(db, vehicle_id: str, latitude: float, longitude: float):
             "$push": { #if you want to append on it just use $push / $set to replace the whole gps_data
                 "gps_data": {
                     "latitude": latitude,
-                    "longitude": longitude,
+                    "longitude": longitude, 
                     "timestamp": datetime.utcnow()
                 }
             }

@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 async def check_and_notify(user_id, user_location, vehicle_location, vehicle_id=None):
     """
-    Check distance between user and vehicle, send notification if within range
+    Check distance between user and vehicle, send notification if within range of the user
     """
     try:
         # Calculate distance using haversine formula
