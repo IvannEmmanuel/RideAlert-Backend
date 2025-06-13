@@ -43,12 +43,12 @@ if not firebase_admin._apps:
         firebase_admin.initialize_app(cred)
         logger.info("Firebase Admin SDK initialized successfully")
     except Exception as e:
-        logger.error(f"Failed to initialize Firebase: {str(e)}")
+        logger.error(f"Failed to initialize the Firebase: {str(e)}")
         raise
 
 def send_push_notification(fcm_token, title, body, data=None):
     """
-    Send push notification via FCM
+    Send push notification via FCM (Firebase Cloud Messaging)
     """
     try:
         # Validate input
