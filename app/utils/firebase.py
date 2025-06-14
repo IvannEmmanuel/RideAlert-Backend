@@ -53,7 +53,7 @@ def send_push_notification(fcm_token, title, body, data=None):
     try:
         # Validate input
         if not fcm_token or not title or not body:
-            logger.error("Missing required parameters for notification")
+            logger.error("Missing required parameters for the notification")
             return False
         
         # Create message
