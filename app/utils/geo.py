@@ -1,5 +1,6 @@
 import math
 
+#to calculate the distance from user to vehicle
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371000  # meters
     phi1 = math.radians(lat1)
