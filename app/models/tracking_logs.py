@@ -1,7 +1,7 @@
 def tracking_class(tracking_log) -> dict:
     return {
         "id": str(tracking_log["_id"]),
-        "vehicle_id": str(tracking_log["vehicle_id"]),  # FK reference to vehicle._id
+        "vehicle_id": str(tracking_log["vehicle_id"]),  # Foreign Key reference to vehicle._id
         "gps_data": [
             {
                 "latitude": entry["latitude"],
