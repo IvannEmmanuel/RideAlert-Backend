@@ -63,7 +63,7 @@ async def test_fcm_notification(
         success = await send_fcm_notification(fcm_token, title, body)
         
         if success:
-            return {"message": "Test notification sent successfully"}
+            return {"message": "Test notification has been sent successfully"}
         else:
             raise HTTPException(status_code=500, detail="Failed to send test notification")
             
