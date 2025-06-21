@@ -154,7 +154,7 @@ async def track_vehicle_ws(websocket: WebSocket):
         vehicle_subscribers[vehicle_id].append(websocket)
 
         while True:
-            await websocket.receive_text()  # Keep connection alive
+            await websocket.receive_text()  # Keep connection alive so that it receive always.
     except WebSocketDisconnect:
         if vehicle_id and vehicle_id in vehicle_subscribers:
             subs = vehicle_subscribers[vehicle_id]
