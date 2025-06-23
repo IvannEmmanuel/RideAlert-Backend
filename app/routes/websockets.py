@@ -162,4 +162,4 @@ async def track_vehicle_ws(websocket: WebSocket):
                 subs.remove(websocket)
                 if not subs:
                     vehicle_subscribers.pop(vehicle_id)
-        print("Vehicle tracking client disconnected")
+        print("Vehicle tracking client disconnected from user")
