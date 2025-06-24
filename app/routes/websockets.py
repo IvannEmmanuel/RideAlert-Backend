@@ -107,7 +107,7 @@ async def update_user_location(websocket: WebSocket):
             try:
                 oid = ObjectId(user_id)
             except Exception:
-                await websocket.send_text("Invalid user_id format")
+                await websocket.send_text("Invalid user-id format")
                 continue
 
             # Validate location schema
