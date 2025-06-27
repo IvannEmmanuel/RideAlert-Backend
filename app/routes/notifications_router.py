@@ -58,7 +58,7 @@ async def test_fcm_notification(
             
         fcm_token = user_data.get("fcm_token")
         if not fcm_token:
-            raise HTTPException(status_code=400, detail="No FCM token found on that user")
+            raise HTTPException(status_code=400, detail="No FCM token found on that specific user")
         
         success = await send_fcm_notification(fcm_token, title, body)
         
