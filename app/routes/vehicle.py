@@ -16,7 +16,7 @@ def create_vehicle(vehicle: VehicleBase, current_user: dict = Depends(admin_requ
     vehicle_dict = vehicle.dict()
     result = vehicle_collection.insert_one(vehicle_dict)
 
-    # ✅ Insert into tracking_logs
+    # Insert into tracking_logs
     tracking_logs_collection.insert_one({
         "vehicle_id": str(result.inserted_id),
         "gps_data": [{
