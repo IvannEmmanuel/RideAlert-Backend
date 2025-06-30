@@ -10,7 +10,7 @@ client = MongoClient(MONGO_URI)
 
 try:
     client.admin.command("ping")
-    print("Connected to MongoDB")
+    print("Connected to MongoDB Successfully")
 except Exception as e:
     print("MongoDB connection error:", e)
 
