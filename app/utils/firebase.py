@@ -48,7 +48,7 @@ if not firebase_admin._apps:
 
 def send_push_notification(fcm_token, title, body, data=None):
     """
-    Send push notification via FCM (Firebase Cloud Messaging)
+    Send the push notification via FCM (Firebase Cloud Messaging)
     """
     try:
         # Validate input
