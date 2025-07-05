@@ -37,7 +37,7 @@ if not firebase_admin._apps:
         
         if not os.path.exists(cred_path):
             logger.error(f"Service account key not found at: {cred_path}")
-            raise FileNotFoundError(f"Service account key not found at: {cred_path}")
+            raise FileNotFoundError(f"Service account key is not found at: {cred_path}")
         
         cred = credentials.Certificate(cred_path)
         firebase_admin.initialize_app(cred)
