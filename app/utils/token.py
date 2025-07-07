@@ -12,6 +12,8 @@ ACCESS_KEY = SECRET_KEY
 
 ALGORITHM = "HS256"
 
+
+#Creating an access token
 def create_access_token(data: dict):
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(hours=1)
