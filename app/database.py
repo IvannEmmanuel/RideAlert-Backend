@@ -12,7 +12,7 @@ try:
     client.admin.command("ping")
     print("Connected to MongoDB Successfully")
 except Exception as e:
-    print("MongoDB connection error:", e)
+    print("MongoDB has connection error:", e)
 
 db = client["ridealertDB"]
 user_collection = db["users"]
