@@ -65,7 +65,7 @@ async def test_fcm_notification(
         if success:
             return {"message": "Test notification sent successfully"}
         else:
-            raise HTTPException(status_code=500, detail="Failed to send the test notification on the user")
+            raise HTTPException(status_code=500, detail="Failed to send the test notification on the specific user")
             
     except Exception as e:
         logger.error(f"Error in test_fcm_notification: {str(e)}")
