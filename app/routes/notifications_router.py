@@ -45,7 +45,7 @@ async def test_fcm_notification(
     current_user: dict = Depends(user_required)
 ):
     """
-    Test FCM notification for debugging purposes
+    Test FCM notification
     """
     try:
         from app.utils.notifications import send_fcm_notification
