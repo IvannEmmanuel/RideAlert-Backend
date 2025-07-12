@@ -54,7 +54,7 @@ async def test_fcm_notification(
         
         user_data = user_collection.find_one({"_id": ObjectId(user_id)})
         if not user_data:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail="User is not found")
             
         fcm_token = user_data.get("fcm_token")
         if not fcm_token:
