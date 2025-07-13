@@ -31,7 +31,7 @@ async def send_proximity_alert(
         if success:
             return {"message": "Proximity notification sent successfully"}
         else:
-            return {"message": "Notification not sent (recent notification exists or error occurred)"}
+            return {"message": "Notification is not sent (recent notification exists or error occurred)"}
             
     except Exception as e:
         logger.error(f"Error in send_proximity_alert: {str(e)}")
