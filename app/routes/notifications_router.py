@@ -19,7 +19,7 @@ async def send_proximity_alert(
     current_user: dict = Depends(user_required)
 ):
     """
-    Send proximity notification to user when vehicle is nearby
+    Send proximity notification to user
     """
     try:
         success = await send_proximity_notification(
