@@ -114,7 +114,7 @@ async def update_user_location(websocket: WebSocket):
             try:
                 location = UserLocation(**location_data)
             except ValidationError:
-                await websocket.send_text("Invalid location format")
+                await websocket.send_text("Invalid location")
                 continue
 
             # Check if user actually exists before updating
