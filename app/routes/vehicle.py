@@ -28,7 +28,7 @@ def create_vehicle(vehicle: VehicleBase, current_user: dict = Depends(admin_requ
 
     created_vehicle = vehicle_collection.find_one({"_id": result.inserted_id})
     if not created_vehicle:
-        raise HTTPException(status_code=500, detail="Failed to create vehicle")
+        raise HTTPException(status_code=500, detail="Failed to create the vehicle")
 
     created_vehicle_dict = {
         "id": str(created_vehicle["_id"]),
