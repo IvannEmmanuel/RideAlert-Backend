@@ -49,8 +49,45 @@ coverage.xml
 *.py,cover
 htmlcov/
 
+# Model and notebook files
+*.pkl
+*.joblib
+*.h5
+*.hdf5
+*.ckpt
+*.pt
+*.onnx
+*.tflite
+*.pb
+*.ipynb
+*.npz
+*.npy
+
+# Data files
+*.csv
+*.tsv
+*.parquet
+*.feather
+*.xls
+*.xlsx
+*.jsonl
+*.zip
+*.tar
+*.tar.gz
+*.7z
+*.rar
+*.gz
+*.bz2
+
+# Notebook checkpoints and outputs
+.ipynb_checkpoints/
+output/
+outputs/
+
 # Miscellaneous
 *.bak
 *.swp
 *~
 *.tmp
+serveraccountkey.json
+app/serviceAccountKey.json
