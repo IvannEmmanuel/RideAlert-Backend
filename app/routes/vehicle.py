@@ -11,7 +11,7 @@ router = APIRouter(prefix="/vehicles", tags=["Vehicles"])
 @router.post("/create", response_model=VehicleInDB)
 def create_vehicle(vehicle: VehicleBase, current_user: dict = Depends(admin_required)):
     if vehicle_collection.find_one({"plate": vehicle.plate}):
-        raise HTTPException(status_code=400, detail="This vehicle license plate is already exists")
+        raise HTTPException(status_code=400, detail="This vehicle license plate is existed already")
 
     vehicle_dict = vehicle.dict()
     result = vehicle_collection.insert_one(vehicle_dict)
