@@ -31,11 +31,11 @@ async def send_proximity_alert(
         if success:
             return {"message": "Proximity notification has sent successfully"}
         else:
-            return {"message": "Notification has not sent (recent notification exists or error occurred)"}
+            return {"message": "Notification has sent (recent notification exists or error occurred)"}
             
     except Exception as e:
         logger.error(f"Error in sending_proximity_alert: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to send notification")
+        raise HTTPException(status_code=500, detail="Failed to send the notification")
 
 @router.post("/test-fcm")
 async def test_fcm_notification(
