@@ -130,7 +130,7 @@ async def update_user_location(websocket: WebSocket):
             )
 
             if result.modified_count == 1:
-                await websocket.send_text(f"Location updated for user {user_id}")
+                await websocket.send_text(f"Location updated for that user {user_id}")
             else:
                 await websocket.send_text(f"No location changes made for user {user_id}")
 
