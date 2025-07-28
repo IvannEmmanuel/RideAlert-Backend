@@ -135,7 +135,7 @@ async def update_user_location(websocket: WebSocket):
                 await websocket.send_text(f"No location changes made for user {user_id}")
 
     except WebSocketDisconnect:
-        print("User client disconnected")
+        print("User client is disconnected")
 
 @ws_router.websocket("/ws/track-vehicle")
 async def track_vehicle_ws(websocket: WebSocket):
