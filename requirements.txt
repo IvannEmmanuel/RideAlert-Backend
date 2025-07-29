@@ -7,6 +7,7 @@ pydantic
 bcrypt
 python-jose
 passlib[bcrypt]
+firebase-admin
 # ML dependencies
 scikit-learn
 joblib
