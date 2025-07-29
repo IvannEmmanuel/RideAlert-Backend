@@ -10,9 +10,10 @@ client = MongoClient(MONGO_URI)
 
 try:
     client.admin.command("ping")
-    print("Connected to MongoDB Successfully")
+    # Reduced logging for Railway deployment
+    print("✅ MongoDB connected")
 except Exception as e:
-    print("MongoDB has connection error:", e)
+    print("❌ MongoDB connection error:", e)
 
 db = client["ridealertDB"]
 user_collection = db["users"]

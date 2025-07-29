@@ -12,7 +12,7 @@ class BackgroundModelLoader:
         self.load_complete = False
 
     def start_background_loading(self):
-        """Start loading models in the background"""
+        """Start loading models in the background with delay for Railway"""
         if self.is_loading or self.load_complete:
             return
 
@@ -24,8 +24,10 @@ class BackgroundModelLoader:
         self.loading_thread.start()
 
     def _load_models_background(self):
-        """Load models in background thread"""
+        """Load models in background thread with Railway-friendly approach"""
         try:
+            # Add a small delay to let the server start properly on Railway
+            time.sleep(5)
             print("📦 Background: Downloading and loading models...")
             self.ml_manager._load_all()
             self.load_complete = True

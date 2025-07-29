@@ -30,14 +30,14 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
+# Set up logging with reduced verbosity for Railway
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # Only initialize once
 if not firebase_admin._apps:
     try:
-        # Get service account from environment variable
+        # Try to get service account from environment variable first (Railway deployment)
         service_account_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_KEY")
 
         if service_account_json:
@@ -46,17 +46,25 @@ if not firebase_admin._apps:
             cred = credentials.Certificate(service_account_info)
             logger.info("Firebase initialized with environment variable")
         else:
-            logger.error("FIREBASE_SERVICE_ACCOUNT_KEY environment variable not found")
-            raise ValueError("Firebase service account key must be provided via FIREBASE_SERVICE_ACCOUNT_KEY environment variable")
+            # Fallback to local file (development)
+            BASE_DIR = os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__)))
+            cred_path = os.path.join(BASE_DIR, "serviceAccountKey.json")
+
+            if not os.path.exists(cred_path):
+                logger.error(f"Service account key not found at: {cred_path}")
+                raise FileNotFoundError(
+                    f"Service account key is not found at: {cred_path}")
+
+            cred = credentials.Certificate(cred_path)
+            logger.info("Firebase initialized with local service account file")
 
         firebase_admin.initialize_app(cred)
         logger.info("Firebase Admin SDK is initialized successfully")
-    except json.JSONDecodeError as e:
-        logger.error(f"Invalid JSON in FIREBASE_SERVICE_ACCOUNT_KEY: {str(e)}")
-        raise
     except Exception as e:
         logger.error(f"Failed to initialize the Firebase Admin: {str(e)}")
         raise
+
 
 def send_push_notification(fcm_token, title, body, data=None):
     """
@@ -67,7 +75,7 @@ def send_push_notification(fcm_token, title, body, data=None):
         if not fcm_token or not title or not body:
             logger.error("Missing required parameters for notification")
             return False
-        
+
         # Create message
         message_data = {
             'notification': messaging.Notification(
@@ -76,18 +84,18 @@ def send_push_notification(fcm_token, title, body, data=None):
             ),
             'token': fcm_token,
         }
-        
+
         # Add custom data if provided
         if data:
             message_data['data'] = data
-        
+
         message = messaging.Message(**message_data)
-        
+
         # Send message
         response = messaging.send(message)
         logger.info(f'Successfully sent message: {response}')
         return True
-        
+
     except messaging.UnregisteredError:
         logger.error(f'FCM token is unregistered: {fcm_token}')
         return False

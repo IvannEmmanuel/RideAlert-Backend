@@ -15,7 +15,6 @@ async def lifespan(app: FastAPI):
     # Startup
     print("🚀 FastAPI starting up...")
     background_loader.start_background_loading()
-    print("📦 Background model loading initiated")
     yield
     # Shutdown
     print("🔄 FastAPI shutting down...")
@@ -43,6 +42,15 @@ app.include_router(models.router)
 @app.get("/")
 def read_root():
     return {"message": "Server is running"}
+
+
+@app.get("/health")
+def health_check():
+    """Health check endpoint for Railway deployment"""
+    return {
+        "status": "healthy",
+        "message": "RideAlert Backend is running"
+    }
 
 
 @app.get("/status")
