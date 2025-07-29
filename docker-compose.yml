@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  ridealert-backend:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+    env_file:
+      - .env
+    restart: unless-stopped
+    volumes:
+      # Optional: persist downloaded models
+      - ./app/ml:/app/app/ml
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

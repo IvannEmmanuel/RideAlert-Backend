@@ -1,5 +1,5 @@
 fastapi
-uvicorn
+uvicorn[standard]
 pymongo
 email-validator
 python-dotenv
@@ -7,4 +7,13 @@ pydantic
 bcrypt
 python-jose
 passlib[bcrypt]
+# ML dependencies
+scikit-learn
+joblib
+numpy
+pandas
+pyproj
+gdown
+requests
+tqdm
 # Optional dependencies for additional features
