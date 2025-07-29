@@ -23,7 +23,12 @@
 import firebase_admin
 from firebase_admin import credentials, messaging
 import os
+import json
 import logging
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -32,16 +37,23 @@ logger = logging.getLogger(__name__)
 # Only initialize once
 if not firebase_admin._apps:
     try:
-        BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        cred_path = os.path.join(BASE_DIR, "serviceAccountKey.json")
-        
-        if not os.path.exists(cred_path):
-            logger.error(f"Service account key not found at: {cred_path}")
-            raise FileNotFoundError(f"Service account key is not found at: {cred_path}")
-        
-        cred = credentials.Certificate(cred_path)
+        # Get service account from environment variable
+        service_account_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_KEY")
+
+        if service_account_json:
+            # Parse JSON from environment variable
+            service_account_info = json.loads(service_account_json)
+            cred = credentials.Certificate(service_account_info)
+            logger.info("Firebase initialized with environment variable")
+        else:
+            logger.error("FIREBASE_SERVICE_ACCOUNT_KEY environment variable not found")
+            raise ValueError("Firebase service account key must be provided via FIREBASE_SERVICE_ACCOUNT_KEY environment variable")
+
         firebase_admin.initialize_app(cred)
         logger.info("Firebase Admin SDK is initialized successfully")
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON in FIREBASE_SERVICE_ACCOUNT_KEY: {str(e)}")
+        raise
     except Exception as e:
         logger.error(f"Failed to initialize the Firebase Admin: {str(e)}")
         raise
