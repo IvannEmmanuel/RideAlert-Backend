@@ -25,6 +25,50 @@ class MLModelManager:
         ]
         return all(os.path.exists(f) for f in required_files)
 
+    def _load_all_optimized(self):
+        """Memory-optimized model loading for Railway deployment"""
+        print("🔧 Starting memory-optimized model loading...")
+        
+        # Ensure models are downloaded first
+        ensure_models_exist()
+        
+        try:
+            import gc  # For garbage collection
+            
+            print("📦 Loading models one by one to optimize memory...")
+            
+            # Load scaler first (smallest)
+            print("🔧 Loading scaler...")
+            self.scaler = self._load_pickle('robust_scaler_v6.pkl')
+            gc.collect()
+            
+            # Load features
+            print("🔧 Loading features...")
+            self.features = self._load_pickle('enhanced_features_v6.pkl')
+            gc.collect()
+            
+            # Load label encoders
+            print("🔧 Loading label encoders...")
+            self.label_encoders = self._load_pickle('enhanced_label_encoders_v6.pkl')
+            gc.collect()
+            
+            # Load only one model to start (gradient boosting is usually smaller)
+            print("🔧 Loading gradient boosting model...")
+            self.models['gradient_boosting'] = self._load_pickle('gradient_boosting_model_v6.pkl')
+            gc.collect()
+            
+            # Load random forest (larger model)
+            print("🔧 Loading random forest model...")
+            self.models['random_forest'] = self._load_pickle('random_forest_model_v6.pkl')
+            gc.collect()
+            
+            print("✅ Memory-optimized model loading completed!")
+            self._models_loaded = True
+            
+        except Exception as e:
+            print(f"❌ Memory-optimized loading failed: {e}")
+            raise
+
     def _load_all(self):
         """Load all models, downloading them first if needed"""
         print("Initializing ML models...")
@@ -57,36 +101,52 @@ class MLModelManager:
             raise
 
     def _load_pickle(self, filename):
+        """Load pickle file with memory optimization"""
+        import gc
         with open(os.path.join(ML_DIR, filename), 'rb') as f:
-            return joblib.load(f)
+            result = joblib.load(f)
+        gc.collect()  # Force garbage collection after each load
+        return result
 
     def _load_all(self):
-        """Load all models, downloading them first if needed"""
-        print("Initializing ML models...")
+        """Load all models with memory optimization for Railway"""
+        import gc
+        print("🧠 Initializing ML models with memory optimization...")
 
         # Ensure models are downloaded first
         ensure_models_exist()
 
         try:
-            print("Loading models...")
-            self.models['gradient_boosting'] = self._load_pickle(
-                'gradient_boosting_model_v6.pkl')
-            self.models['random_forest'] = self._load_pickle(
-                'random_forest_model_v6.pkl')
+            print("📦 Loading models one by one with garbage collection...")
+            
+            # Load models sequentially with garbage collection between each
+            print("Loading gradient boosting model...")
+            self.models['gradient_boosting'] = self._load_pickle('gradient_boosting_model_v6.pkl')
+            
+            print("Loading random forest model...")
+            self.models['random_forest'] = self._load_pickle('random_forest_model_v6.pkl')
+            
+            print("Loading scaler...")
             self.scaler = self._load_pickle('robust_scaler_v6.pkl')
+            
+            print("Loading features...")
             self.features = self._load_pickle('enhanced_features_v6.pkl')
-            self.label_encoders = self._load_pickle(
-                'enhanced_label_encoders_v6.pkl')
+            
+            print("Loading label encoders...")
+            self.label_encoders = self._load_pickle('enhanced_label_encoders_v6.pkl')
 
-            print("✅ All models loaded successfully")
+            print("✅ All models loaded successfully with memory optimization")
             self._models_loaded = True
 
             # Print valid classes for each label-encoded feature
             if self.label_encoders:
                 for feat, encoder in self.label_encoders.items():
-                    print(
-                        f"Valid classes for '{feat}': {list(encoder.classes_)}")
+                    print(f"Valid classes for '{feat}': {list(encoder.classes_)}")
 
+        except MemoryError as me:
+            print(f"💾 Memory error during model loading: {me}")
+            print("⚠️ Railway memory limit exceeded - consider upgrading plan")
+            raise MemoryError("Railway memory limit exceeded during model loading")
         except Exception as e:
             print(f"❌ Error loading models: {e}")
             raise

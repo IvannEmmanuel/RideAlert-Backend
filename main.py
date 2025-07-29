@@ -73,32 +73,69 @@ def reload_models():
     try:
         if background_loader.is_loading:
             return {"message": "Models are already loading", "status": "loading"}
-        
+
         # Reset the loader state
         background_loader.load_complete = False
         background_loader.load_error = None
         background_loader.is_loading = True
-        
+
         # Start actual model loading in background thread
         import threading
+
         def load_models_now():
             try:
                 print("🔄 Manual model loading triggered...")
-                background_loader.ml_manager._load_all()
-                background_loader.load_complete = True
-                background_loader.is_loading = False
-                print("✅ Manual model loading completed!")
+                print(f"📊 Initial state: loading={background_loader.is_loading}, complete={background_loader.load_complete}, error={background_loader.load_error}")
+                
+                # Try memory-optimized loading
+                print("🧠 Attempting memory-optimized model loading...")
+                import gc
+                import os
+                
+                # Force garbage collection before loading
+                gc.collect()
+                
+                # Load models with memory optimization
+                try:
+                    print("📦 Loading models with memory optimization...")
+                    background_loader.ml_manager._load_all()
+                    
+                    # Force garbage collection after loading
+                    gc.collect()
+                    
+                    background_loader.load_complete = True
+                    background_loader.is_loading = False
+                    background_loader.load_error = None
+                    
+                    print("✅ Memory-optimized model loading completed!")
+                    print(f"📊 Final state: loading={background_loader.is_loading}, complete={background_loader.load_complete}")
+                    
+                except MemoryError as me:
+                    error_msg = f"Railway memory limit exceeded: {str(me)}"
+                    print(f"💾 {error_msg}")
+                    background_loader.load_error = f"Memory limit exceeded. Try upgrading Railway plan."
+                    background_loader.is_loading = False
+                    background_loader.load_complete = False
+                    
+                except Exception as model_error:
+                    error_msg = f"Model loading error: {str(model_error)}"
+                    print(f"❌ {error_msg}")
+                    background_loader.load_error = error_msg
+                    background_loader.is_loading = False
+                    background_loader.load_complete = False
+                    
             except Exception as e:
                 error_msg = f"Manual model loading failed: {str(e)}"
                 print(f"❌ {error_msg}")
                 background_loader.load_error = error_msg
                 background_loader.is_loading = False
-        
+                background_loader.load_complete = False
+
         # Start in daemon thread
         thread = threading.Thread(target=load_models_now)
         thread.daemon = True
         thread.start()
-        
+
         return {"message": "Manual model loading started", "status": "loading"}
     except Exception as e:
         return {"message": f"Failed to start model loading: {str(e)}", "status": "error"}
