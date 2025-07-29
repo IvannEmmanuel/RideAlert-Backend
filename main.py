@@ -16,10 +16,9 @@ async def lifespan(app: FastAPI):
     print("🚀 FastAPI starting up...")
     try:
         background_loader.start_background_loading()
-        print("📦 Background model loading initiated (optional)")
+        print("📦 Background loading configured (models will load on-demand)")
     except Exception as e:
-        print(f"⚠️ Model loading startup warning: {e}")
-        print("📋 App will continue without ML models")
+        print(f"⚠️ Background loader setup warning: {e}")
     yield
     # Shutdown
     print("🔄 FastAPI shutting down...")
@@ -78,10 +77,28 @@ def reload_models():
         # Reset the loader state
         background_loader.load_complete = False
         background_loader.load_error = None
-        background_loader.is_loading = False
+        background_loader.is_loading = True
         
-        # Start loading again
-        background_loader.start_background_loading()
-        return {"message": "Model loading triggered", "status": "started"}
+        # Start actual model loading in background thread
+        import threading
+        def load_models_now():
+            try:
+                print("🔄 Manual model loading triggered...")
+                background_loader.ml_manager._load_all()
+                background_loader.load_complete = True
+                background_loader.is_loading = False
+                print("✅ Manual model loading completed!")
+            except Exception as e:
+                error_msg = f"Manual model loading failed: {str(e)}"
+                print(f"❌ {error_msg}")
+                background_loader.load_error = error_msg
+                background_loader.is_loading = False
+        
+        # Start in daemon thread
+        thread = threading.Thread(target=load_models_now)
+        thread.daemon = True
+        thread.start()
+        
+        return {"message": "Manual model loading started", "status": "loading"}
     except Exception as e:
         return {"message": f"Failed to start model loading: {str(e)}", "status": "error"}

@@ -26,8 +26,9 @@ class BackgroundModelLoader:
     def _load_models_background(self):
         """Load models in background thread with Railway-friendly approach"""
         try:
-            # Add a small delay to let the server start properly on Railway
-            time.sleep(10)
+            # Longer delay to ensure Railway is fully stable
+            print("📦 Background: Waiting for Railway stability...")
+            time.sleep(30)  # Increased delay for Railway
             print("📦 Background: Checking for model requirements...")
             
             # Check if environment variables are available
@@ -46,20 +47,22 @@ class BackgroundModelLoader:
                 print(f"⚠️ {error_msg}")
                 self.load_error = error_msg
                 self.is_loading = False
-                # Don't crash - just mark as error but let app continue
                 return
             
-            print("📦 Background: Environment variables found, starting download...")
-            self.ml_manager._load_all()
-            self.load_complete = True
+            print("📦 Background: Environment variables found")
+            print("⚠️ Skipping model loading on Railway to prevent crashes")
+            print("📋 Use /admin/reload-models endpoint when ready for ML features")
+            
+            # Skip actual model loading on Railway to prevent restart loops
+            # Models can be loaded later via the reload endpoint
+            self.load_error = "Models skipped to prevent Railway crashes. Use /admin/reload-models when ready."
             self.is_loading = False
-            print("✅ Background model loading completed!")
+            
         except Exception as e:
-            error_msg = f"Model loading failed (app will continue without ML): {str(e)}"
+            error_msg = f"Model initialization failed (app will continue): {str(e)}"
             print(f"⚠️ {error_msg}")
             self.load_error = error_msg
             self.is_loading = False
-            # Don't re-raise - let the app continue without models
 
     def get_status(self):
         """Get current loading status"""
