@@ -52,7 +52,7 @@ class BackgroundModelLoader:
 
             print("📦 Background: Environment variables found")
             print("🚀 Attempting memory-optimized model loading...")
-            
+
             try:
                 # Try to load models with memory optimization
                 self.ml_manager._load_all_optimized()

@@ -85,45 +85,47 @@ def reload_models():
         def load_models_now():
             try:
                 print("🔄 Manual model loading triggered...")
-                print(f"📊 Initial state: loading={background_loader.is_loading}, complete={background_loader.load_complete}, error={background_loader.load_error}")
-                
+                print(
+                    f"📊 Initial state: loading={background_loader.is_loading}, complete={background_loader.load_complete}, error={background_loader.load_error}")
+
                 # Try memory-optimized loading
                 print("🧠 Attempting memory-optimized model loading...")
                 import gc
                 import os
-                
+
                 # Force garbage collection before loading
                 gc.collect()
-                
+
                 # Load models with memory optimization
                 try:
                     print("📦 Loading models with memory optimization...")
                     background_loader.ml_manager._load_all()
-                    
+
                     # Force garbage collection after loading
                     gc.collect()
-                    
+
                     background_loader.load_complete = True
                     background_loader.is_loading = False
                     background_loader.load_error = None
-                    
+
                     print("✅ Memory-optimized model loading completed!")
-                    print(f"📊 Final state: loading={background_loader.is_loading}, complete={background_loader.load_complete}")
-                    
+                    print(
+                        f"📊 Final state: loading={background_loader.is_loading}, complete={background_loader.load_complete}")
+
                 except MemoryError as me:
                     error_msg = f"Railway memory limit exceeded: {str(me)}"
                     print(f"💾 {error_msg}")
                     background_loader.load_error = f"Memory limit exceeded. Try upgrading Railway plan."
                     background_loader.is_loading = False
                     background_loader.load_complete = False
-                    
+
                 except Exception as model_error:
                     error_msg = f"Model loading error: {str(model_error)}"
                     print(f"❌ {error_msg}")
                     background_loader.load_error = error_msg
                     background_loader.is_loading = False
                     background_loader.load_complete = False
-                    
+
             except Exception as e:
                 error_msg = f"Manual model loading failed: {str(e)}"
                 print(f"❌ {error_msg}")
