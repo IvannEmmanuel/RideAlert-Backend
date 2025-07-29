@@ -49,6 +49,9 @@ def download_with_progress(url, output_path, timeout=300):
 
 def download_models():
     """Download models from URLs defined in environment variables"""
+    from dotenv import load_dotenv
+    load_dotenv()
+    
     models_dir = Path("app/ml")
     models_dir.mkdir(exist_ok=True)
 
@@ -62,6 +65,17 @@ def download_models():
     }
 
     print("🚀 Starting model download process...")
+    
+    # Check if environment variables are set
+    missing_urls = [name for name, url in models.items() if not url]
+    if missing_urls:
+        print(f"⚠️ Missing environment variables for: {missing_urls}")
+        print("📋 Required environment variables:")
+        for name in missing_urls:
+            env_var = name.replace('.pkl', '').upper()
+            print(f"   - {env_var}")
+        raise Exception(f"Missing environment variables for model URLs: {missing_urls}")
+    
     total_start_time = time.time()
 
     for model_name, url in models.items():

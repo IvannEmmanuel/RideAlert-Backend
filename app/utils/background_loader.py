@@ -27,16 +27,39 @@ class BackgroundModelLoader:
         """Load models in background thread with Railway-friendly approach"""
         try:
             # Add a small delay to let the server start properly on Railway
-            time.sleep(5)
-            print("📦 Background: Downloading and loading models...")
+            time.sleep(10)
+            print("📦 Background: Checking for model requirements...")
+            
+            # Check if environment variables are available
+            import os
+            required_env_vars = [
+                "ENHANCED_FEATURES_V6",
+                "ENHANCED_LABEL_ENCODERS_V6", 
+                "GRADIENT_BOOSTING_MODEL_V6",
+                "RANDOM_FOREST_MODEL_V6",
+                "ROBUST_SCALER_V6"
+            ]
+            
+            missing_vars = [var for var in required_env_vars if not os.getenv(var)]
+            if missing_vars:
+                error_msg = f"Model URLs not configured. Missing: {missing_vars}. Models will be disabled."
+                print(f"⚠️ {error_msg}")
+                self.load_error = error_msg
+                self.is_loading = False
+                # Don't crash - just mark as error but let app continue
+                return
+            
+            print("📦 Background: Environment variables found, starting download...")
             self.ml_manager._load_all()
             self.load_complete = True
             self.is_loading = False
             print("✅ Background model loading completed!")
         except Exception as e:
-            print(f"❌ Background model loading failed: {str(e)}")
-            self.load_error = str(e)
+            error_msg = f"Model loading failed (app will continue without ML): {str(e)}"
+            print(f"⚠️ {error_msg}")
+            self.load_error = error_msg
             self.is_loading = False
+            # Don't re-raise - let the app continue without models
 
     def get_status(self):
         """Get current loading status"""

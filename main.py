@@ -14,7 +14,12 @@ from contextlib import asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     print("🚀 FastAPI starting up...")
-    background_loader.start_background_loading()
+    try:
+        background_loader.start_background_loading()
+        print("📦 Background model loading initiated (optional)")
+    except Exception as e:
+        print(f"⚠️ Model loading startup warning: {e}")
+        print("📋 App will continue without ML models")
     yield
     # Shutdown
     print("🔄 FastAPI shutting down...")
@@ -61,3 +66,22 @@ def server_status():
         "server": "running",
         "models": model_status
     }
+
+
+@app.post("/admin/reload-models")
+def reload_models():
+    """Manually trigger model reloading (useful after setting environment variables)"""
+    try:
+        if background_loader.is_loading:
+            return {"message": "Models are already loading", "status": "loading"}
+        
+        # Reset the loader state
+        background_loader.load_complete = False
+        background_loader.load_error = None
+        background_loader.is_loading = False
+        
+        # Start loading again
+        background_loader.start_background_loading()
+        return {"message": "Model loading triggered", "status": "started"}
+    except Exception as e:
+        return {"message": f"Failed to start model loading: {str(e)}", "status": "error"}
