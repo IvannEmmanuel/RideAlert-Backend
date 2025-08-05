@@ -76,7 +76,7 @@ def update_location(
     )
 
     if result.matched_count == 1:
-        return {"message": "The location is updated successfully"}
+        return {"message": "The location updated successfully"}
 
     raise HTTPException(status_code=404, detail="User not found")
 
