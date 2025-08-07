@@ -91,5 +91,5 @@ async def save_fcm_token(
         {"$set": {"fcm_token": fcm_token}}
     )
     if result.modified_count == 1:
-        return {"message": "FCM token has been saved"}
+        return {"message": "FCM token has saved"}
     raise HTTPException(status_code=404, detail="User not found")
