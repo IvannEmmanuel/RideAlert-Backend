@@ -37,7 +37,7 @@ def login_user(login_data: UserLogin):
     user = user_collection.find_one({"email": login_data.email})
 
     if not user or not verify_password(login_data.password, user["password"]):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+        raise HTTPException(status_code=401, detail="email or password is invalid")
 
     token_data = {
         "user_id": str(user["_id"]),
