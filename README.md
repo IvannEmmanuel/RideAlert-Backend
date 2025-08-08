@@ -28,7 +28,7 @@
    ```
 4. **Run the FastAPI server:**
    ```sh
-   uvicorn app.main:app --reload
+   uvicorn app.main:app --reload or python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
    ```
 
 ---
