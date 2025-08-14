@@ -37,7 +37,7 @@ def login_user(login_data: UserLogin):
     user = user_collection.find_one({"email": login_data.email})
 
     if not user or not verify_password(login_data.password, user["password"]):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+        raise HTTPException(status_code=401, detail="email or password is invalid")
 
     token_data = {
         "user_id": str(user["_id"]),
@@ -76,7 +76,7 @@ def update_location(
     )
 
     if result.matched_count == 1:
-        return {"message": "Location updated successfully"}
+        return {"message": "The location updated successfully"}
 
     raise HTTPException(status_code=404, detail="User not found")
 
@@ -91,5 +91,5 @@ async def save_fcm_token(
         {"$set": {"fcm_token": fcm_token}}
     )
     if result.modified_count == 1:
-        return {"message": "FCM token saved"}
+        return {"message": "FCM token has saved"}
     raise HTTPException(status_code=404, detail="User not found")
