@@ -60,7 +60,7 @@ def download_models():
         "enhanced_features_v6.pkl": os.getenv("ENHANCED_FEATURES_V6"),
         "enhanced_label_encoders_v6.pkl": os.getenv("ENHANCED_LABEL_ENCODERS_V6"),
         "gradient_boosting_model_v6.pkl": os.getenv("GRADIENT_BOOSTING_MODEL_V6"),
-        "random_forest_model_v6.pkl": os.getenv("RANDOM_FOREST_MODEL_V6"),
+        # "random_forest_model_v6.pkl": os.getenv("RANDOM_FOREST_MODEL_V6"),  # Commented out - using only gradient boosting
         "robust_scaler_v6.pkl": os.getenv("ROBUST_SCALER_V6")
     }
 
@@ -102,7 +102,7 @@ def ensure_models_exist():
         "app/ml/enhanced_features_v6.pkl",
         "app/ml/enhanced_label_encoders_v6.pkl",
         "app/ml/gradient_boosting_model_v6.pkl",
-        "app/ml/random_forest_model_v6.pkl",
+        # "app/ml/random_forest_model_v6.pkl",  # Commented out - using only gradient boosting
         "app/ml/robust_scaler_v6.pkl"
     ]
 
@@ -122,7 +122,7 @@ def check_model_status():
         "app/ml/enhanced_features_v6.pkl",
         "app/ml/enhanced_label_encoders_v6.pkl",
         "app/ml/gradient_boosting_model_v6.pkl",
-        "app/ml/random_forest_model_v6.pkl",
+        # "app/ml/random_forest_model_v6.pkl",  # Commented out - using only gradient boosting
         "app/ml/robust_scaler_v6.pkl"
     ]
 
@@ -154,7 +154,7 @@ def delete_all_models():
         "app/ml/enhanced_features_v6.pkl",
         "app/ml/enhanced_label_encoders_v6.pkl",
         "app/ml/gradient_boosting_model_v6.pkl",
-        "app/ml/random_forest_model_v6.pkl",
+        # "app/ml/random_forest_model_v6.pkl",  # Commented out - using only gradient boosting
         "app/ml/robust_scaler_v6.pkl"
     ]
 

@@ -20,7 +20,7 @@ class MLModelManager:
             "app/ml/enhanced_features_v6.pkl",
             "app/ml/enhanced_label_encoders_v6.pkl",
             "app/ml/gradient_boosting_model_v6.pkl",
-            "app/ml/random_forest_model_v6.pkl",
+            # "app/ml/random_forest_model_v6.pkl",  # Commented out - using only gradient boosting
             "app/ml/robust_scaler_v6.pkl"
         ]
         return all(os.path.exists(f) for f in required_files)
@@ -53,17 +53,17 @@ class MLModelManager:
                 'enhanced_label_encoders_v6.pkl')
             gc.collect()
 
-            # Load only one model to start (gradient boosting is usually smaller)
+            # Load only gradient boosting model (not using random forest)
             print("🔧 Loading gradient boosting model...")
             self.models['gradient_boosting'] = self._load_pickle(
                 'gradient_boosting_model_v6.pkl')
             gc.collect()
 
-            # Load random forest (larger model)
-            print("🔧 Loading random forest model...")
-            self.models['random_forest'] = self._load_pickle(
-                'random_forest_model_v6.pkl')
-            gc.collect()
+            # Random forest model loading commented out - using only gradient boosting
+            # print("🔧 Loading random forest model...")
+            # self.models['random_forest'] = self._load_pickle(
+            #     'random_forest_model_v6.pkl')
+            # gc.collect()
 
             print("✅ Memory-optimized model loading completed!")
             self._models_loaded = True
@@ -83,8 +83,8 @@ class MLModelManager:
             print("Loading models...")
             self.models['gradient_boosting'] = self._load_pickle(
                 'gradient_boosting_model_v6.pkl')
-            self.models['random_forest'] = self._load_pickle(
-                'random_forest_model_v6.pkl')
+            # self.models['random_forest'] = self._load_pickle(
+            #     'random_forest_model_v6.pkl')  # Commented out - using only gradient boosting
             self.scaler = self._load_pickle('robust_scaler_v6.pkl')
             self.features = self._load_pickle('enhanced_features_v6.pkl')
             self.label_encoders = self._load_pickle(
@@ -127,9 +127,10 @@ class MLModelManager:
             self.models['gradient_boosting'] = self._load_pickle(
                 'gradient_boosting_model_v6.pkl')
 
-            print("Loading random forest model...")
-            self.models['random_forest'] = self._load_pickle(
-                'random_forest_model_v6.pkl')
+            # Random forest model loading commented out - using only gradient boosting
+            # print("Loading random forest model...")
+            # self.models['random_forest'] = self._load_pickle(
+            #     'random_forest_model_v6.pkl')
 
             print("Loading scaler...")
             self.scaler = self._load_pickle('robust_scaler_v6.pkl')
@@ -160,43 +161,36 @@ class MLModelManager:
             raise
 
     def preprocess(self, input_data: Dict[str, Any]):
+        import pandas as pd
+
+        # Create a list with feature values in the correct order
         X = [input_data[feat] for feat in self.features]
+
+        # Apply label encoding
         for i, feat in enumerate(self.features):
             if feat in self.label_encoders:
                 X[i] = self.label_encoders[feat].transform([X[i]])[0]
-        X_scaled = self.scaler.transform([X])[0]
+
+        # Convert to DataFrame with feature names to avoid sklearn warning
+        X_df = pd.DataFrame([X], columns=self.features)
+
+        # Scale the features
+        X_scaled = self.scaler.transform(X_df)[0]
         return X_scaled
 
-    def predict(self, input_data: Dict[str, Any], model_name: str = 'ensemble'):
+    def predict(self, input_data: Dict[str, Any], model_name: str = 'gradient_boosting'):
+        """
+        Make prediction using the specified model (now only gradient boosting supported).
+        Random forest model has been commented out to use only gradient boosting.
+        """
         if not self._models_loaded:
-            self._load_all_optimized()
+            self._load_all()
 
         X_scaled = self.preprocess(input_data)
-
-        if model_name == 'ensemble':
-            # Ensemble prediction using both models
-            if 'gradient_boosting' in self.models and 'random_forest' in self.models:
-                gb_pred = self.models['gradient_boosting'].predict([X_scaled])[
-                    0]
-                rf_pred = self.models['random_forest'].predict([X_scaled])[0]
-                # Average the predictions for ensemble
-                ensemble_pred = (gb_pred + rf_pred) / 2
-                print(
-                    f"🎯 Ensemble prediction: {ensemble_pred} (GB: {gb_pred}, RF: {rf_pred})")
-                if hasattr(ensemble_pred, 'tolist'):
-                    ensemble_pred = ensemble_pred.tolist()
-                return ensemble_pred
-            else:
-                # Fallback to available model
-                available_model = next(iter(self.models.keys()))
-                print(f"⚠️ Not all models loaded, using {available_model}")
-                model = self.models[available_model]
-        else:
-            # Single model prediction
-            model = self.models.get(model_name)
-            if not model:
-                raise ValueError(f"Model '{model_name}' not found.")
-
+        model = self.models.get(model_name)
+        if not model:
+            raise ValueError(
+                f"Model '{model_name}' not found. Only 'gradient_boosting' is available.")
         prediction = model.predict([X_scaled])[0]
         # Ensure output is JSON serializable
         if hasattr(prediction, 'tolist'):

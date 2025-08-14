@@ -17,5 +17,4 @@ pyproj
 gdown
 requests
 tqdm
-psutil
 # Optional dependencies for additional features

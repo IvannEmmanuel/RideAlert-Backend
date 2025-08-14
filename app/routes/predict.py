@@ -2,8 +2,12 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from app.utils.background_loader import background_loader
 import math
+import os
 
 router = APIRouter()
+
+# Simple toggle for ground truth comparison - set to True for testing, False for production
+ENABLE_GROUND_TRUTH_COMPARISON = True  # Change to False for production
 
 
 class PredictionRequest(BaseModel):
@@ -21,6 +25,9 @@ class PredictionRequest(BaseModel):
     WlsPositionXEcefMeters: float
     WlsPositionYEcefMeters: float
     WlsPositionZEcefMeters: float
+    # Ground truth fields - only used when ENABLE_GROUND_TRUTH_COMPARISON is True
+    LatitudeDegrees_gt: float = None
+    LongitudeDegrees_gt: float = None
 
 
 @router.get("/predict/status")
@@ -89,7 +96,8 @@ async def predict(request: PredictionRequest):
         corrected_lat = wls_lat + prediction[0]
         corrected_lng = wls_lng + prediction[1]
 
-        return {
+        # Basic response
+        response_data = {
             "prediction": prediction,
             "wls_latitude": wls_lat,
             "wls_longitude": wls_lng,
@@ -97,6 +105,26 @@ async def predict(request: PredictionRequest):
             "corrected_longitude": corrected_lng,
             "model_status": "ready"
         }
+
+        # Add ground truth comparison ONLY if enabled and data provided
+        if ENABLE_GROUND_TRUTH_COMPARISON and request.LatitudeDegrees_gt is not None and request.LongitudeDegrees_gt is not None:
+            gt_lat = request.LatitudeDegrees_gt
+            gt_lng = request.LongitudeDegrees_gt
+
+            # Simple error calculation
+            lat_error_m = abs(corrected_lat - gt_lat) * 111320
+            lng_error_m = abs(corrected_lng - gt_lng) * 111320 * \
+                math.cos(math.radians(abs(corrected_lat)))
+            total_error_m = math.sqrt(lat_error_m**2 + lng_error_m**2)
+
+            # Add simple comparison to response
+            response_data["testing_analysis"] = {
+                "ground_truth_lat": gt_lat,
+                "ground_truth_lng": gt_lng,
+                "error_meters": round(total_error_m, 2)
+            }
+
+        return response_data
     except HTTPException:
         # Re-raise HTTP exceptions as-is
         raise

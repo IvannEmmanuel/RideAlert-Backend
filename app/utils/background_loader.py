@@ -24,30 +24,49 @@ class BackgroundModelLoader:
         self.loading_thread.start()
 
     def _load_models_background(self):
-        """Load models in background thread - immediate loading for local development"""
+        """Load models immediately on server startup"""
         try:
-            # Small delay for server startup
-            print("📦 Background: Starting model loading...")
-            time.sleep(3)  # Reduced delay for local development
-            print("📦 Background: Loading models immediately...")
+            # Load models immediately - no delay needed
+            print("📦 Background: Starting immediate model loading...")
+            print("📦 Background: Checking for model requirements...")
 
-            print("� Starting automatic model loading...")
+            # Check if environment variables are available
+            import os
+            required_env_vars = [
+                "ENHANCED_FEATURES_V6",
+                "ENHANCED_LABEL_ENCODERS_V6",
+                "GRADIENT_BOOSTING_MODEL_V6",
+                # "RANDOM_FOREST_MODEL_V6",  # Commented out - using only gradient boosting
+                "ROBUST_SCALER_V6"
+            ]
+
+            missing_vars = [
+                var for var in required_env_vars if not os.getenv(var)]
+            if missing_vars:
+                error_msg = f"Model URLs not configured. Missing: {missing_vars}. Models will be disabled."
+                print(f"⚠️ {error_msg}")
+                self.load_error = error_msg
+                self.is_loading = False
+                return
+
+            print("📦 Background: Environment variables found")
+            print("🚀 Attempting memory-optimized model loading...")
 
             try:
-                # Load models with ensemble support
+                # Try to load models with memory optimization
                 self.ml_manager._load_all_optimized()
                 self.load_complete = True
                 self.is_loading = False
                 self.load_error = None
-                print("✅ Automatic model loading completed!")
+                print("✅ Memory-optimized model loading completed!")
             except Exception as e:
-                print(f"❌ Automatic loading failed: {e}")
-                print("📋 Models will be available via manual trigger")
+                print(f"❌ Memory-optimized loading failed: {e}")
+                print("📋 Use /admin/reload-models endpoint to try again")
                 self.load_error = f"Auto-loading failed: {str(e)}. Use manual reload."
                 self.is_loading = False
 
         except Exception as e:
-            error_msg = f"Model initialization failed: {str(e)}"
+            error_msg = f"Model initialization failed (app will continue): {str(e)}"
             print(f"⚠️ {error_msg}")
             self.load_error = error_msg
             self.is_loading = False
