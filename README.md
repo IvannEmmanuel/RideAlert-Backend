@@ -36,9 +36,16 @@
     ROBUST_SCALER_V6=<model-url>
     ```
 4. **Run the FastAPI server:**
-    ```sh
-    uvicorn main:app --reload
-    ```
+   ```sh
+   # Development (with auto-reload):
+   uvicorn main:app --reload
+   
+   # Production (with host and port specified):
+   uvicorn main:app --host 0.0.0.0 --port 8000
+   
+   # Alternative syntax:
+   python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
+   ```
 
 ---
 

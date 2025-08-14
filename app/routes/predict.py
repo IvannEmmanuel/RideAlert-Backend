@@ -32,7 +32,7 @@ class PredictionRequest(BaseModel):
 
 @router.get("/predict/status")
 async def get_prediction_status():
-    """Check if prediction service is ready"""
+    """Check if the prediction service is ready"""
     status = background_loader.get_status()
     return status
 
@@ -52,7 +52,7 @@ async def predict(request: PredictionRequest):
         if status["status"] == "loading":
             raise HTTPException(
                 status_code=202,  # Accepted, but processing
-                detail="Models are still being downloaded and loaded in background. Please try again in a moment."
+                detail="Models are still being downloaded and loaded in the background. Please try again in a moment."
             )
 
         if status["status"] == "not_started":
