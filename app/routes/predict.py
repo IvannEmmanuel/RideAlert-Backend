@@ -6,7 +6,7 @@ import os
 
 router = APIRouter()
 
-ENABLE_GROUND_TRUTH_COMPARISON = True  # Change to False for production
+ENABLE_GROUND_TRUTH_COMPARISON = False  # Change to False for production
 
 
 class PredictionRequest(BaseModel):
