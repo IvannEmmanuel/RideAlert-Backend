@@ -6,7 +6,6 @@ import os
 
 router = APIRouter()
 
-# Simple toggle for ground truth comparison - set to True for testing, False for production
 ENABLE_GROUND_TRUTH_COMPARISON = True  # Change to False for production
 
 
@@ -25,7 +24,7 @@ class PredictionRequest(BaseModel):
     WlsPositionXEcefMeters: float
     WlsPositionYEcefMeters: float
     WlsPositionZEcefMeters: float
-    # Ground truth fields - only used when ENABLE_GROUND_TRUTH_COMPARISON is True
+    # only used when ENABLE_GROUND_TRUTH_COMPARISON is True
     LatitudeDegrees_gt: float = None
     LongitudeDegrees_gt: float = None
 
