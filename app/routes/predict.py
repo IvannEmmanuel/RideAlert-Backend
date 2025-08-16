@@ -95,14 +95,10 @@ async def predict(request: PredictionRequest):
         corrected_lat = wls_lat + prediction[0]
         corrected_lng = wls_lng + prediction[1]
 
-        # Basic response
+        # Minimal response - only corrected coordinates
         response_data = {
-            "prediction": prediction,
-            "wls_latitude": wls_lat,
-            "wls_longitude": wls_lng,
-            "corrected_latitude": corrected_lat,
-            "corrected_longitude": corrected_lng,
-            "model_status": "ready"
+            "latitude": corrected_lat,
+            "longitude": corrected_lng
         }
 
         # Add ground truth comparison ONLY if enabled and data provided
