@@ -4,6 +4,7 @@ WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
+    bash \
     gcc \
     g++ \
     wget \
@@ -28,6 +29,9 @@ ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
+
+# Default command to start the server
+CMD ["./start.sh"]
 
 # Command to run the application
 # Models will be downloaded on first prediction request
