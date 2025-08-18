@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from app.routes import user
 from app.routes import vehicle
 from app.routes.websockets import ws_router
@@ -51,10 +51,42 @@ def read_root():
 @app.get("/health")
 def health_check():
     """Health check endpoint for Railway deployment"""
-    return {
-        "status": "healthy",
-        "message": "RideAlert Backend is running"
-    }
+    try:
+        # Basic health check
+        health_status = {
+            "status": "healthy", 
+            "message": "RideAlert Backend is running",
+            "timestamp": "2025-08-16"
+        }
+        
+        # Optional: Check database connection (non-blocking)
+        try:
+            from app.database import get_database
+            db = get_database()
+            # Simple ping to check connection
+            db.command('ping')
+            health_status["database"] = "connected"
+        except Exception as db_error:
+            # Don't fail the health check if DB is temporarily unavailable
+            health_status["database"] = "warning"
+            health_status["db_message"] = "Database connection issue (non-critical)"
+        
+        # Check ML model status (non-blocking)
+        try:
+            ml_status = background_loader.get_status()
+            health_status["ml_models"] = ml_status.get("status", "unknown")
+        except Exception:
+            health_status["ml_models"] = "not_checked"
+        
+        return health_status
+        
+    except Exception as e:
+        # If health check itself fails, return error but still return 200
+        return {
+            "status": "degraded",
+            "message": "Health check encountered issues",
+            "error": str(e)
+        }
 
 
 @app.get("/status")

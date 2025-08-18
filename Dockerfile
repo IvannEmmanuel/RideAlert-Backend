@@ -17,9 +17,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Make startup script executable
-RUN chmod +x start.sh
-
 # Create ml directory for models
 RUN mkdir -p app/ml
 
@@ -29,6 +26,6 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-# Command to run the application
+# Command to run the application directly with uvicorn
 # Models will be downloaded on first prediction request
-CMD ["./start.sh"]
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --timeout-keep-alive 30"]
