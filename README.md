@@ -44,17 +44,34 @@
 
 ## **API Endpoints**
 
-| Method | Endpoint               | Description                              |
-| ------ | ---------------------- | ---------------------------------------- |
-| POST   | `/users/register`      | Register a new user                      |
-| POST   | `/users/login`         | User login (returns JWT)                 |
-| GET    | `/users/{user_id}`     | Get user info (admin only)               |
-| POST   | `/vehicles/create`     | Create a new vehicle (admin only)        |
-| GET    | `/vehicles/track/{id}` | Get vehicle location/status              |
-| GET    | `/vehicles/all`        | List all vehicles with locations         |
-| POST   | `/predict`             | ML prediction for GPS correction         |
-| GET    | `/predict/status`      | Check ML model loading status            |
-| WS     | `/ws/location`         | WebSocket for updating vehicle locations |
+| Method                      | Endpoint                        | Description                              | Auth Required |
+| --------------------------- | ------------------------------- | ---------------------------------------- | ------------- |
+| GET                         | `/`                             | Root endpoint (server status)            | None          |
+| GET                         | `/health`                       | Health check endpoint                    | None          |
+| GET                         | `/status`                       | Server status with model information     | None          |
+| **User Management**         |
+| POST                        | `/users/register`               | Register a new user                      | None          |
+| POST                        | `/users/login`                  | User login (returns JWT)                 | None          |
+| GET                         | `/users/{user_id}`              | Get user info                            | User/Admin    |
+| POST                        | `/users/location`               | Update user location                     | User          |
+| POST                        | `/users/fcm-token`              | Update user FCM token for notifications  | User          |
+| **Vehicle Management**      |
+| POST                        | `/vehicles/create`              | Create a new vehicle                     | Admin         |
+| GET                         | `/vehicles/track/{id}`          | Get vehicle location/status              | User/Admin    |
+| GET                         | `/vehicles/all`                 | List all vehicles with locations         | User/Admin    |
+| **ML Prediction**           |
+| POST                        | `/predict`                      | ML prediction for GPS correction         | None          |
+| GET                         | `/predict/status`               | Check ML model loading status            | None          |
+| **Model Management**        |
+| GET                         | `/models/status`                | Check model files and loading progress   | None          |
+| POST                        | `/models/reload`                | Manually reload ML models                | None          |
+| DELETE                      | `/models/clear`                 | Clear/delete all model files             | None          |
+| POST                        | `/admin/reload-models`          | Manual model reload (fallback)           | None          |
+| **Notifications**           |
+| POST                        | `/notifications/send-proximity` | Send proximity notification              | User          |
+| POST                        | `/notifications/test-fcm`       | Test FCM notification                    | User          |
+| **Real-Time Communication** |
+| WS                          | `/ws/location`                  | WebSocket for updating vehicle locations | None          |
 
 ---
 
