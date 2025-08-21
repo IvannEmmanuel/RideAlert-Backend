@@ -5,17 +5,6 @@ from app.utils.background_loader import background_loader
 router = APIRouter()
 
 
-@router.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    status = background_loader.get_status()
-    return {
-        "status": "healthy",
-        "model_status": status["status"],
-        "models_loaded": status["models_loaded"]
-    }
-
-
 @router.get("/models/status")
 async def model_status():
     """Check status of all model files and loading progress"""
