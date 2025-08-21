@@ -46,7 +46,6 @@ def create_vehicle(vehicle: VehicleBase, current_user: dict = Depends(admin_requ
 
 @router.get("/track/{id}", response_model=VehicleTrackResponse)
 def track_vehicle(id: str, current_user: dict = Depends(user_or_admin_required)):
-    # Access the vehicles collection
     try:
         vehicle = vehicle_collection.find_one({"_id": ObjectId(id)})
     except:
@@ -55,7 +54,6 @@ def track_vehicle(id: str, current_user: dict = Depends(user_or_admin_required))
     if not vehicle:
         raise HTTPException(status_code=404, detail="Vehicle not found")
 
-    # Extract corrected GPS coordinates and seat availability
     vehicle_location = vehicle.get("location", {})
     if not vehicle_location.get("latitude") or not vehicle_location.get("longitude"):
         raise HTTPException(status_code=400, detail="Vehicle location unavailable")
@@ -67,12 +65,14 @@ def track_vehicle(id: str, current_user: dict = Depends(user_or_admin_required))
             longitude=vehicle_location["longitude"]
         ),
         available_seats=vehicle.get("available_seats", 0),
-        status=VehicleStatus(vehicle["status"])
+        status=VehicleStatus(vehicle["status"]),
+        route=vehicle.get("route", ""),
+        driverName=vehicle.get("driverName", ""),
+        plate=vehicle.get("plate", "")
     )
 
 @router.get("/all", response_model=List[VehicleTrackResponse])
 def track_all_vehicles(current_user: dict = Depends(user_or_admin_required)):
-    # Retrieve all vehicles from the collection
     vehicles = []
     for vehicle in vehicle_collection.find():
         vehicle_location = vehicle.get("location", {})
@@ -84,10 +84,11 @@ def track_all_vehicles(current_user: dict = Depends(user_or_admin_required)):
                     longitude=vehicle_location["longitude"]
                 ),
                 available_seats=vehicle.get("available_seats", 0),
-                status=VehicleStatus(vehicle["status"])
+                status=VehicleStatus(vehicle["status"]),
+                route=vehicle.get("route", ""),
+                driverName=vehicle.get("driverName", ""),
+                plate=vehicle.get("plate", "")
             ))
-    
     if not vehicles:
         raise HTTPException(status_code=404, detail="No vehicles with valid locations found")
-
     return vehicles

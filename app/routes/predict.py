@@ -31,7 +31,7 @@ class PredictionRequest(BaseModel):
 
 @router.get("/predict/status")
 async def get_prediction_status():
-    """Check if the prediction service is ready"""
+    """Check if the prediction service ready"""
     status = background_loader.get_status()
     return status
 

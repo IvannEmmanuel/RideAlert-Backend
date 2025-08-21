@@ -58,7 +58,7 @@ async def reload_models():
 
 @router.delete("/models/clear")
 async def clear_models():
-    """Delete all model files (for testing/cleanup)"""
+    """Delete all model files (for testing or cleanup)"""
     try:
         delete_all_models()
 
