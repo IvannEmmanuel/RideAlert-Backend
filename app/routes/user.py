@@ -5,7 +5,7 @@ from app.models.user import user_helper
 from bson import ObjectId
 from app.utils.pasword_hashing import hash_password
 from app.utils.pasword_hashing import verify_password
-from app.utils.token import create_access_token
+from app.utils.auth_token import create_access_token
 from fastapi.responses import JSONResponse
 from app.dependencies.roles import admin_required, user_required, user_or_admin_required
 
