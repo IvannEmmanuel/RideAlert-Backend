@@ -66,38 +66,80 @@ if not firebase_admin._apps:
         raise
 
 
+# def send_push_notification(fcm_token, title, body, data=None):
+#     """
+#     Send the push notification via FCM (Firebase Cloud Messaging)
+#     """
+#     try:
+#         # Validate input
+#         if not fcm_token or not title or not body:
+#             logger.error("Missing required parameters for notification")
+#             return False
+
+#         # Create message
+#         message_data = {
+#             'notification': messaging.Notification(
+#                 title=title,
+#                 body=body,
+#             ),
+#             'token': fcm_token,
+#         }
+
+#         # Add custom data if provided
+#         if data:
+#             message_data['data'] = data
+
+#         message = messaging.Message(**message_data)
+
+#         # Send message
+#         response = messaging.send(message)
+#         logger.info(f'Successfully sent message: {response}')
+#         return True
+
+#     except messaging.UnregisteredError:
+#         logger.error(f'FCM token is unregistered: {fcm_token}')
+#         return False
+#     except messaging.SenderIdMismatchError:
+#         logger.error(f'FCM token sender ID mismatch: {fcm_token}')
+
 def send_push_notification(fcm_token, title, body, data=None):
     """
     Send the push notification via FCM (Firebase Cloud Messaging)
+    with high priority and channel for heads-up display.
     """
     try:
-        # Validate input
         if not fcm_token or not title or not body:
             logger.error("Missing required parameters for notification")
             return False
 
-        # Create message
-        message_data = {
-            'notification': messaging.Notification(
-                title=title,
-                body=body,
-            ),
-            'token': fcm_token,
-        }
+        android_notification = messaging.AndroidNotification(
+            title=title,
+            body=body,
+            sound="default",
+            channel_id="high_priority_channel",  # Must match frontend
+        )
 
-        # Add custom data if provided
-        if data:
-            message_data['data'] = data
+        android_config = messaging.AndroidConfig(
+            priority="high",
+            notification=android_notification,
+        )
 
-        message = messaging.Message(**message_data)
+        message = messaging.Message(
+            token=fcm_token,
+            android=android_config,
+            data=data or {},  # Optional custom payload
+        )
 
-        # Send message
         response = messaging.send(message)
-        logger.info(f'Successfully sent message: {response}')
+        logger.info(f"✅ Successfully sent message: {response}")
         return True
 
     except messaging.UnregisteredError:
-        logger.error(f'FCM token is unregistered: {fcm_token}')
+        logger.error(f"❌ FCM token is unregistered: {fcm_token}")
         return False
     except messaging.SenderIdMismatchError:
-        logger.error(f'FCM token sender ID mismatch: {fcm_token}')
+        logger.error(f"❌ FCM token sender ID mismatch: {fcm_token}")
+        return False
+    except Exception as e:
+        logger.error(f"❌ Failed to send push notification: {str(e)}")
+        return False

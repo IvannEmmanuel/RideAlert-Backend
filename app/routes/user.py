@@ -87,9 +87,12 @@ async def save_fcm_token(
     fcm_token: str = Body(...)
 ):
     result = user_collection.update_one(
-        {"_id": ObjectId(user_id)},
-        {"$set": {"fcm_token": fcm_token}}
+    {"_id": ObjectId(user_id)},
+    {"$set": {"fcm_token": fcm_token}}
     )
-    if result.modified_count == 1:
-        return {"message": "FCM token has saved"}
+    if result.matched_count == 1:
+        if result.modified_count == 1:
+            return {"message": "FCM token updated"}
+        else:
+            return {"message": "FCM token already up-to-date"}
     raise HTTPException(status_code=404, detail="User not found")
