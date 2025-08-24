@@ -51,40 +51,40 @@ async def send_proximity_alert(
         logger.error(f"Error in sending_proximity_alert: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to send the notification")
 
-# #para ma sendan og notification ang specific user both background and foreground
-# @router.post("/test-fcm")
-# async def test_fcm_notification(
-#     user_id: str = Body(...),
-#     title: str = Body(...),
-#     body: str = Body(...),
-#     current_user: dict = Depends(user_required)
-# ):
-#     """
-#     Test FCM notification
-#     """
-#     try:
-#         from app.utils.notifications import send_fcm_notification
-#         from app.database import user_collection
-#         from bson import ObjectId
+#para ma sendan og notification ang specific user both background and foreground
+@router.post("/test-fcm")
+async def test_fcm_notification(
+    user_id: str = Body(...),
+    title: str = Body(...),
+    body: str = Body(...),
+    current_user: dict = Depends(user_required)
+):
+    """
+    Test FCM notification
+    """
+    try:
+        from app.utils.notifications import send_fcm_notification
+        from app.database import user_collection
+        from bson import ObjectId
         
-#         user_data = user_collection.find_one({"_id": ObjectId(user_id)})
-#         if not user_data:
-#             raise HTTPException(status_code=404, detail="User is not found")
+        user_data = user_collection.find_one({"_id": ObjectId(user_id)})
+        if not user_data:
+            raise HTTPException(status_code=404, detail="User is not found")
             
-#         fcm_token = user_data.get("fcm_token")
-#         if not fcm_token:
-#             raise HTTPException(status_code=400, detail="No FCM token found")
+        fcm_token = user_data.get("fcm_token")
+        if not fcm_token:
+            raise HTTPException(status_code=400, detail="No FCM token found")
         
-#         success = await send_fcm_notification(fcm_token, title, body)
+        success = await send_fcm_notification(fcm_token, title, body)
         
-#         if success:
-#             return {"message": "Test notification sent successfully"}
-#         else:
-#             raise HTTPException(status_code=500, detail="Failed to send the test notification on the specific user")
+        if success:
+            return {"message": "Test notification sent successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to send the test notification on the specific user")
             
-#     except Exception as e:
-#         logger.error(f"Error in test_fcm_notification: {str(e)}")
-#         raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error in test_fcm_notification: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 #para mag create og notification then matik na dayon siya mo send og notification didto sa specific user (test-fcm combination)
 @router.post("/", response_model=NotificationLogPublic)
@@ -132,6 +132,12 @@ async def create_notification_log(log: NotificationLogCreate):
 
 
 #para makita ang tanan nga notification sa specific na user.
+@router.get("/user/{user_id}", response_model=List[NotificationLogPublic])
+def get_user_notifications(user_id: str):
+    logs = notification_logs_collection.find({"user_id": ObjectId(user_id)})
+    return [notification_log_class(log) for log in logs]
+
+#to provide real-time updates from the /user/{user_id}
 @router.websocket("/user/{user_id}/ws")
 async def websocket_user_notifications(websocket: WebSocket, user_id: str):
     await websocket.accept()
