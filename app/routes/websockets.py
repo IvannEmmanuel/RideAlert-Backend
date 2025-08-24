@@ -138,6 +138,7 @@ async def update_user_location(websocket: WebSocket):
     except WebSocketDisconnect:
         print("User client is disconnected")
 
+#para track ang vehicles continuously no need to reload
 @ws_router.websocket("/ws/track-vehicle")
 async def track_vehicle_ws(websocket: WebSocket):
     await websocket.accept()
@@ -165,6 +166,7 @@ async def track_vehicle_ws(websocket: WebSocket):
                     vehicle_subscribers.pop(vehicle_id)
         print("Vehicle tracking client disconnected from user")
 
+#para count tanan vehicles continuously (bisan newly created) no need to reload
 @ws_router.websocket("/ws/vehicle-counts")
 async def vehicle_counts_ws(websocket: WebSocket):
     await websocket.accept()
@@ -188,6 +190,8 @@ async def vehicle_counts_ws(websocket: WebSocket):
     except WebSocketDisconnect:
         print("Vehicle count client disconnected")
 
+
+#para makita tanan vehicles continuously (bisan newly created) no need to reload
 @ws_router.websocket("/ws/vehicles/all")
 async def all_vehicles_ws(websocket: WebSocket):
     await websocket.accept()
