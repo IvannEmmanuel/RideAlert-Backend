@@ -10,6 +10,7 @@ from app.database import notification_logs_collection
 from app.models.notification_logs import notification_log_class
 from app.schemas.notification_logs import NotificationLogCreate, NotificationLogPublic
 from typing import List
+from pytz import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -77,13 +78,15 @@ async def test_fcm_notification(
     except Exception as e:
         logger.error(f"Error in test_fcm_notification: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-    
+
+
 @router.post("/", response_model=NotificationLogPublic)
 def create_notification_log(log: NotificationLogCreate):
+    ph_tz = timezone("Asia/Manila")
     doc = {
         "user_id": ObjectId(log.user_id),
         "message": log.message,
-        "createdAt": datetime.utcnow()
+        "createdAt": datetime.now(ph_tz).isoformat()
     }
     result = notification_logs_collection.insert_one(doc)
     new_log = notification_logs_collection.find_one({"_id": result.inserted_id})
