@@ -3,6 +3,13 @@ from app.utils.notifications import send_proximity_notification
 from app.dependencies.roles import user_required
 from pydantic import BaseModel
 import logging
+from fastapi import APIRouter, HTTPException
+from bson import ObjectId
+from datetime import datetime
+from app.database import notification_logs_collection
+from app.models.notification_logs import notification_log_class
+from app.schemas.notification_logs import NotificationLogCreate, NotificationLogPublic
+from typing import List
 
 logger = logging.getLogger(__name__)
 
@@ -70,3 +77,19 @@ async def test_fcm_notification(
     except Exception as e:
         logger.error(f"Error in test_fcm_notification: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.post("/", response_model=NotificationLogPublic)
+def create_notification_log(log: NotificationLogCreate):
+    doc = {
+        "user_id": ObjectId(log.user_id),
+        "message": log.message,
+        "createdAt": datetime.utcnow()
+    }
+    result = notification_logs_collection.insert_one(doc)
+    new_log = notification_logs_collection.find_one({"_id": result.inserted_id})
+    return notification_log_class(new_log)
+
+@router.get("/user/{user_id}", response_model=List[NotificationLogPublic])
+def get_user_notifications(user_id: str):
+    logs = notification_logs_collection.find({"user_id": ObjectId(user_id)})
+    return [notification_log_class(log) for log in logs]
