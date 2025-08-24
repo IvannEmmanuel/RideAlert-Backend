@@ -7,6 +7,7 @@ from app.schemas.user import Location as UserLocation
 from app.utils.tracking_logs import insert_gps_log
 from app.utils.notifications import check_and_notify
 from typing import Dict, List
+import asyncio
 
 ws_router = APIRouter(tags=["WebSocket"])
 
@@ -163,3 +164,26 @@ async def track_vehicle_ws(websocket: WebSocket):
                 if not subs:
                     vehicle_subscribers.pop(vehicle_id)
         print("Vehicle tracking client disconnected from user")
+
+@ws_router.websocket("/ws/vehicle-counts")
+async def vehicle_counts_ws(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            # Query DB for counts
+            total = vehicle_collection.count_documents({})
+            available = vehicle_collection.count_documents({"status": "available"})
+            full = vehicle_collection.count_documents({"status": "full"})
+            unavailable = vehicle_collection.count_documents({"status": "unavailable"})
+
+            await websocket.send_json({
+                "total": total,
+                "available": available,
+                "full": full,
+                "unavailable": unavailable
+            })
+
+            # You can tune this interval or replace with a change-stream if Mongo supports it
+            await asyncio.sleep(5)
+    except WebSocketDisconnect:
+        print("Vehicle count client disconnected")

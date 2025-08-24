@@ -100,3 +100,13 @@ def count_vehicles(current_user: dict = Depends(user_or_admin_required)):
         return {"count": total}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error counting vehicles: {str(e)}")
+    
+@router.get("/count/available")
+def count_available_vehicles(current_user: dict = Depends(user_or_admin_required)):
+    try:
+        available = vehicle_collection.count_documents({"status": "available"})
+        return {"count": available}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error counting available vehicles: {str(e)}")
+    
+#I think I balhin nani sa websocket para usa ra tanan :>>
