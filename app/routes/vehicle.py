@@ -93,6 +93,8 @@ def track_all_vehicles(current_user: dict = Depends(user_or_admin_required)):
         raise HTTPException(status_code=404, detail="No vehicles with valid locations found")
     return vehicles
 
+#ADDED IT INTO THE WEBSOCKET ( PWEDE NA MA DELETE )
+
 @router.get("/count")
 def count_vehicles(current_user: dict = Depends(user_or_admin_required)):
     try:
@@ -109,4 +111,4 @@ def count_available_vehicles(current_user: dict = Depends(user_or_admin_required
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error counting available vehicles: {str(e)}")
     
-#I think I balhin nani sa websocket para usa ra tanan :>>
+# ADDED TO WEBSOCKET

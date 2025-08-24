@@ -187,3 +187,32 @@ async def vehicle_counts_ws(websocket: WebSocket):
             await asyncio.sleep(5)
     except WebSocketDisconnect:
         print("Vehicle count client disconnected")
+
+@ws_router.websocket("/ws/vehicles/all")
+async def all_vehicles_ws(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            vehicles = []
+            for vehicle in vehicle_collection.find():
+                vehicle_location = vehicle.get("location", {})
+                if vehicle_location.get("latitude") and vehicle_location.get("longitude"):
+                    vehicles.append({
+                        "id": str(vehicle["_id"]),
+                        "location": {
+                            "latitude": vehicle_location["latitude"],
+                            "longitude": vehicle_location["longitude"]
+                        },
+                        "available_seats": vehicle.get("available_seats", 0),
+                        "status": vehicle.get("status", "unavailable"),
+                        "route": vehicle.get("route", ""),
+                        "driverName": vehicle.get("driverName", ""),
+                        "plate": vehicle.get("plate", "")
+                    })
+
+            await websocket.send_json(vehicles)
+
+            await asyncio.sleep(5)
+
+    except WebSocketDisconnect:
+        print("Vehicle list WebSocket client disconnected")
