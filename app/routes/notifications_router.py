@@ -1,12 +1,12 @@
 from fastapi import APIRouter, HTTPException, Depends, Body
-from app.utils.notifications import send_proximity_notification
+from app.utils.notifications import send_proximity_notification, send_fcm_notification
 from app.dependencies.roles import user_required
 from pydantic import BaseModel
 import logging
 from fastapi import APIRouter, HTTPException
 from bson import ObjectId
 from datetime import datetime
-from app.database import notification_logs_collection
+from app.database import notification_logs_collection, user_collection
 from app.models.notification_logs import notification_log_class
 from app.schemas.notification_logs import NotificationLogCreate, NotificationLogPublic
 from typing import List
@@ -87,11 +87,10 @@ async def test_fcm_notification(
         raise HTTPException(status_code=500, detail=str(e))
 
 #para mag create og notification then matik na dayon siya mo send og notification didto sa specific user (test-fcm combination)
+from fastapi import BackgroundTasks
+
 @router.post("/", response_model=NotificationLogPublic)
 async def create_notification_log(log: NotificationLogCreate):
-    from app.utils.notifications import send_fcm_notification
-    from app.database import user_collection
-
     ph_tz = timezone("Asia/Manila")
     doc = {
         "user_id": ObjectId(log.user_id),
@@ -114,19 +113,22 @@ async def create_notification_log(log: NotificationLogCreate):
             except Exception as e:
                 print(f"Error sending WebSocket notification to user {user_id_str}: {e}")
 
-    # 📱 Send FCM push notification
-    try:
-        user_data = user_collection.find_one({"_id": ObjectId(log.user_id)})
-        if user_data:
-            fcm_token = user_data.get("fcm_token")
-            if fcm_token:
-                await send_fcm_notification(
-                    fcm_token,
-                    title="New Notification",
-                    body=log.message
-                )
-    except Exception as e:
-        print(f"Error sending FCM notification to user {user_id_str}: {e}")
+    # 📱 Send FCM push notification asynchronously
+    async def send_fcm_async():
+        try:
+            user_data = user_collection.find_one({"_id": ObjectId(log.user_id)})
+            if user_data:
+                fcm_token = user_data.get("fcm_token")
+                if fcm_token:
+                    await send_fcm_notification(
+                        fcm_token,
+                        title="New Notification",
+                        body=log.message
+                    )
+        except Exception as e:
+            print(f"Error sending FCM notification to user {user_id_str}: {e}")
+
+    asyncio.create_task(send_fcm_async())
 
     return public_log
 
