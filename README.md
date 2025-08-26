@@ -107,9 +107,19 @@ The RideAlert backend uses a **gradient boosting machine learning model** to imp
 
     - Raw GNSS satellite data (Cn0DbHz, Svid, SvElevationDegrees, SvAzimuthDegrees)
     - IMU measurements (MeasurementX/Y/Z, BiasX/Y/Z)
-    - WLS (Weighted Least Squares) ECEF coordinates
+    - **Position Data (flexible input):**
+        - **Option A**: Pre-calculated WLS ECEF coordinates
+        - **Option B**: Raw lat/lng/altitude (automatically converted to ECEF)
 
-2. **Feature Engineering**
+2. **Automatic Coordinate Conversion (if raw coordinates provided)**
+
+    ```python
+    # Convert raw coordinates to ECEF for ML processing
+    transformer = Transformer.from_crs("EPSG:4326", "EPSG:4978")
+    wls_x, wls_y, wls_z = transformer.transform(longitude, latitude, altitude)
+    ```
+
+3. **Feature Engineering**
 
     ```python
     # Signal quality calculation
@@ -119,7 +129,7 @@ The RideAlert backend uses a **gradient boosting machine learning model** to imp
     WLS_Distance = sqrt(WlsPositionXEcefMeters² + WlsPositionYEcefMeters² + WlsPositionZEcefMeters²)
     ```
 
-3. **Coordinate Conversion (ECEF → Lat/Lon)**
+4. **Coordinate Conversion (ECEF → Lat/Lon)**
 
     ```python
     # Convert ECEF coordinates to geographic coordinates
@@ -131,13 +141,13 @@ The RideAlert backend uses a **gradient boosting machine learning model** to imp
     )
     ```
 
-4. **ML Prediction**
+5. **ML Prediction**
 
     - Input: 15+ engineered features from satellite and IMU data
     - Model: Gradient Boosting Regressor (scikit-learn)
     - Output: Latitude and longitude offset predictions
 
-5. **Final Correction**
+6. **Final Correction**
     ```python
     corrected_lat = wls_lat + prediction[0]  # Apply lat offset
     corrected_lng = wls_lng + prediction[1]  # Apply lng offset
@@ -330,7 +340,51 @@ def validate_prediction(request, prediction):
 
 ### **⚡ API Response**
 
-The `/predict` endpoint returns only the essential corrected coordinates:
+The `/predict` endpoint accepts coordinates in two formats and returns only the essential corrected coordinates:
+
+**Input Format 1 - WLS ECEF Coordinates (existing format):**
+
+```json
+{
+    "Cn0DbHz": 34.5,
+    "Svid": 26,
+    "SvElevationDegrees": 11.921829759541668,
+    "SvAzimuthDegrees": 300.9760926638057,
+    "IMU_MessageType": "UncalAccel",
+    "MeasurementX": -1.1359925,
+    "MeasurementY": 10.039685,
+    "MeasurementZ": 0.34396824,
+    "BiasX": 0.0,
+    "BiasY": 0.0,
+    "BiasZ": 0.0,
+    "WlsPositionXEcefMeters": -2692780.859573388,
+    "WlsPositionYEcefMeters": -4297232.898753325,
+    "WlsPositionZEcefMeters": 3855231.0261780913
+}
+```
+
+**Input Format 2 - Raw Coordinates (new format):**
+
+```json
+{
+    "Cn0DbHz": 34.5,
+    "Svid": 26,
+    "SvElevationDegrees": 11.921829759541668,
+    "SvAzimuthDegrees": 300.9760926638057,
+    "IMU_MessageType": "UncalAccel",
+    "MeasurementX": -1.1359925,
+    "MeasurementY": 10.039685,
+    "MeasurementZ": 0.34396824,
+    "BiasX": 0.0,
+    "BiasY": 0.0,
+    "BiasZ": 0.0,
+    "raw_latitude": 37.4282903,
+    "raw_longitude": -122.0725281,
+    "raw_altitude": 100.0
+}
+```
+
+**Response:**
 
 ```json
 {
@@ -338,6 +392,12 @@ The `/predict` endpoint returns only the essential corrected coordinates:
     "longitude": -122.072456
 }
 ```
+
+**Coordinate Conversion:**
+
+-   The backend automatically converts `raw_latitude`, `raw_longitude`, `raw_altitude` to WLS ECEF coordinates internally
+-   Use either WLS ECEF coordinates OR raw coordinates, not both
+-   Raw coordinates are in WGS84 decimal degrees with altitude in meters above the WGS84 ellipsoid
 
 ---
 
