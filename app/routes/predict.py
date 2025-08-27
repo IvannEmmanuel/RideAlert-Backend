@@ -1,11 +1,21 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from app.utils.background_loader import background_loader
+from app.utils.tracking_logs import insert_gps_log
+from app.database import db
 from typing import Optional
+from datetime import datetime
 import math
 import os
 
 router = APIRouter()
+
+# Configuration variables for ML prediction logging
+# These will be updated when integrating with actual vehicle/device management
+# Will be replaced with actual vehicle ID from request
+DEFAULT_VEHICLE_ID = "vehicle_001"
+# Will be replaced with actual IoT device ID from request
+DEFAULT_DEVICE_ID = "iot_device_001"
 
 ENABLE_GROUND_TRUTH_COMPARISON = False  # Change to False for production
 
@@ -181,13 +191,42 @@ async def predict(request: PredictionRequest):
         corrected_lat = wls_lat + prediction[0]
         corrected_lng = wls_lng + prediction[1]
 
+        # Determine altitude (use raw altitude if provided, otherwise estimate from ECEF)
+        corrected_altitude = request.raw_altitude if request.raw_altitude is not None else 0.0
+
         # Minimal response - only corrected coordinates
         response_data = {
             "latitude": corrected_lat,
             "longitude": corrected_lng
         }
 
-        # Add ground truth comparison ONLY if enabled and data provided
+        # Log SUCCESSFUL ML prediction to tracking logs
+        # This only executes if prediction was successful (no exceptions thrown above)
+        try:
+            corrected_coordinates = {
+                "latitude": corrected_lat,
+                "longitude": corrected_lng,
+                "altitude": corrected_altitude
+            }
+
+            # Convert request to dict for logging
+            ml_request_data = request.dict()
+
+            # Insert comprehensive tracking log for this SUCCESSFUL prediction
+            log_id = insert_gps_log(
+                db=db,
+                vehicle_id=DEFAULT_VEHICLE_ID,  # Will be replaced with actual vehicle ID
+                device_id=DEFAULT_DEVICE_ID,   # Will be replaced with actual device ID
+                ml_request_data=ml_request_data,
+                corrected_coordinates=corrected_coordinates
+            )
+
+            print(f"✅ Successful ML prediction logged with ID: {log_id}")
+
+        except Exception as e:
+            # Don't fail the prediction response if logging fails, but log the error
+            print(f"⚠️ Warning: Failed to log successful ML prediction: {e}")
+            # Prediction still succeeds, just logging failed        # Add ground truth comparison ONLY if enabled and data provided
         if ENABLE_GROUND_TRUTH_COMPARISON and request.LatitudeDegrees_gt is not None and request.LongitudeDegrees_gt is not None:
             gt_lat = request.LatitudeDegrees_gt
             gt_lng = request.LongitudeDegrees_gt

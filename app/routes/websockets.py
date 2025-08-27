@@ -4,7 +4,6 @@ from pydantic import ValidationError
 from app.database import vehicle_collection, user_collection, db
 from app.schemas.vehicle import Location as VehicleLocation
 from app.schemas.user import Location as UserLocation
-from app.utils.tracking_logs import insert_gps_log
 from app.utils.notifications import check_and_notify
 from typing import Dict, List
 import asyncio
@@ -12,6 +11,7 @@ import asyncio
 ws_router = APIRouter(tags=["WebSocket"])
 
 vehicle_subscribers: Dict[str, List[WebSocket]] = {}
+
 
 @ws_router.websocket("/ws/location")
 async def update_location(websocket: WebSocket):
@@ -32,7 +32,8 @@ async def update_location(websocket: WebSocket):
 
             # Debug: print all vehicle IDs in the collection
             print("Looking for vehicle:", oid)
-            print("All vehicle IDs:", [str(v["_id"]) for v in vehicle_collection.find({}, {"_id": 1})])
+            print("All vehicle IDs:", [str(v["_id"])
+                  for v in vehicle_collection.find({}, {"_id": 1})])
 
             # Validate location structure
             try:
@@ -47,15 +48,9 @@ async def update_location(websocket: WebSocket):
                 {"$set": {"location": location.dict()}}
             )
 
-            # Insert tracking log
-            try:
-                insert_gps_log(db, vehicle_id, location.latitude, location.longitude)
-            except Exception as e:
-                await websocket.send_text(f"Error updating tracking log: {e}")
-                continue
-
             # Notify all users tracking this vehicle
-            tracking_users = user_collection.find({"tracking_vehicle_id": vehicle_id})
+            tracking_users = user_collection.find(
+                {"tracking_vehicle_id": vehicle_id})
             for user in tracking_users:
                 user_location = user.get("location")
                 if user_location:
@@ -93,6 +88,7 @@ async def update_location(websocket: WebSocket):
 
     except WebSocketDisconnect:
         print("Vehicle client disconnected")
+
 
 @ws_router.websocket("/ws/user-location")
 async def update_user_location(websocket: WebSocket):
@@ -138,7 +134,9 @@ async def update_user_location(websocket: WebSocket):
     except WebSocketDisconnect:
         print("User client is disconnected")
 
-#para track ang vehicles continuously no need to reload
+# para track ang vehicles continuously no need to reload
+
+
 @ws_router.websocket("/ws/track-vehicle")
 async def track_vehicle_ws(websocket: WebSocket):
     await websocket.accept()
@@ -156,7 +154,8 @@ async def track_vehicle_ws(websocket: WebSocket):
         vehicle_subscribers[vehicle_id].append(websocket)
 
         while True:
-            await websocket.receive_text()  # Keep connection alive so that it receive always.
+            # Keep connection alive so that it receive always.
+            await websocket.receive_text()
     except WebSocketDisconnect:
         if vehicle_id and vehicle_id in vehicle_subscribers:
             subs = vehicle_subscribers[vehicle_id]
@@ -166,7 +165,9 @@ async def track_vehicle_ws(websocket: WebSocket):
                     vehicle_subscribers.pop(vehicle_id)
         print("Vehicle tracking client disconnected from user")
 
-#para count tanan vehicles continuously (bisan newly created) no need to reload
+# para count tanan vehicles continuously (bisan newly created) no need to reload
+
+
 @ws_router.websocket("/ws/vehicle-counts")
 async def vehicle_counts_ws(websocket: WebSocket):
     await websocket.accept()
@@ -174,9 +175,11 @@ async def vehicle_counts_ws(websocket: WebSocket):
         while True:
             # Query DB for counts
             total = vehicle_collection.count_documents({})
-            available = vehicle_collection.count_documents({"status": "available"})
+            available = vehicle_collection.count_documents(
+                {"status": "available"})
             full = vehicle_collection.count_documents({"status": "full"})
-            unavailable = vehicle_collection.count_documents({"status": "unavailable"})
+            unavailable = vehicle_collection.count_documents(
+                {"status": "unavailable"})
 
             await websocket.send_json({
                 "total": total,
@@ -191,7 +194,7 @@ async def vehicle_counts_ws(websocket: WebSocket):
         print("Vehicle count client disconnected")
 
 
-#para makita tanan vehicles continuously (bisan newly created) no need to reload
+# para makita tanan vehicles continuously (bisan newly created) no need to reload
 @ws_router.websocket("/ws/vehicles/all")
 async def all_vehicles_ws(websocket: WebSocket):
     await websocket.accept()

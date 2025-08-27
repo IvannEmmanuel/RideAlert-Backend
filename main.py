@@ -28,7 +28,9 @@ app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "https://ride-alert-admin-panel.vercel.app"],  # Allow all origins, adjust as needed
+    # Allow all origins, adjust as needed
+    allow_origins=["http://localhost:5173",
+                   "https://ride-alert-admin-panel.vercel.app"],
     allow_credentials=True,
     allow_methods=["*"],  # Allow all methods, adjust as needed
     allow_headers=["*"],  # Allow all headers, adjust as needed
