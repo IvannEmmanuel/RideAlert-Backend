@@ -106,7 +106,7 @@ def count_available_vehicles(current_user: dict = Depends(user_or_admin_required
     
 # ADDED TO WEBSOCKET
 
-#You can create a separate endpoint to update device_id when the IoT device is registered:
+#You can create a separate endpoint to update device_id when the IoT device is registered
 @router.put("/assign-device/{vehicle_id}")
 def assign_device_id(vehicle_id: str, device_id: str, current_user: dict = Depends(admin_required)):
     result = vehicle_collection.update_one(
