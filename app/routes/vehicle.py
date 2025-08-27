@@ -5,7 +5,6 @@ from app.dependencies.roles import user_required, admin_required, user_or_admin_
 from app.schemas.vehicle import VehicleTrackResponse, Location, VehicleStatus, VehicleBase, VehicleInDB
 from typing import List
 from datetime import datetime
-from app.schemas.vehicle import VehicleBase
 
 router = APIRouter(prefix="/vehicles", tags=["Vehicles"])
 
