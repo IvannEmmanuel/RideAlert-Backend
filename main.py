@@ -3,6 +3,7 @@ from app.routes import user
 from app.routes import vehicle
 from app.routes.websockets import ws_router
 from app.routes.notifications_router import router as notifications_router
+from app.routes.iot_devices import router as iot_router
 from app.routes import predict
 from app.routes import models
 from fastapi.middleware.cors import CORSMiddleware
@@ -42,6 +43,7 @@ app.include_router(ws_router)
 app.include_router(notifications_router)
 app.include_router(predict.router)
 app.include_router(models.router)
+app.include_router(iot_router)
 # Include other routers as needed
 
 
