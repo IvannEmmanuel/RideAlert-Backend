@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from enum import Enum
+from typing import Optional
 
 # Enums for vehicle type and status
 class VehicleType(str, Enum):
@@ -17,7 +18,7 @@ class Location(BaseModel):
     longitude: float
 
 class VehicleBase(BaseModel):
-    location: Location
+    location: Optional[Location] = None
     vehicle_type: VehicleType
     capacity: int
     available_seats: int
@@ -25,6 +26,7 @@ class VehicleBase(BaseModel):
     route: str
     driverName: str
     plate: str
+    device_id: Optional[str] = None
 
 class VehicleInDB(VehicleBase):
     id: str
@@ -37,3 +39,4 @@ class VehicleTrackResponse(BaseModel):
     route: str
     driverName: str
     plate: str
+    device_id: str
