@@ -8,5 +8,6 @@ def vehicle_class(vehicle) -> dict:
         "status": vehicle["status"],
         "route": vehicle["route"],
         "driverName": vehicle["driverName"],
-        "plate": vehicle["plate"]  # match your Pydantic model, not plate_number of the vehicle
+        "plate": vehicle["plate"],  # match your Pydantic model, not plate_number of the vehicle
+        "device_id": vehicle["device_id"] #foreign key
     }
