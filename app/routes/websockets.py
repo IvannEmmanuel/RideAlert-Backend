@@ -7,10 +7,15 @@ from app.schemas.user import Location as UserLocation
 from app.utils.notifications import check_and_notify
 from typing import Dict, List
 import asyncio
+from datetime import datetime
 
 ws_router = APIRouter(tags=["WebSocket"])
 
 vehicle_subscribers: Dict[str, List[WebSocket]] = {}
+# Add new subscribers for vehicle location updates via IoT predictions
+# vehicle_id -> subscribers (since each vehicle has one paired IoT device)
+# Global vehicle location feed
+all_vehicle_updates_subscribers: List[WebSocket] = []
 
 
 @ws_router.websocket("/ws/location")
@@ -223,3 +228,108 @@ async def all_vehicles_ws(websocket: WebSocket):
 
     except WebSocketDisconnect:
         print("Vehicle list WebSocket client disconnected")
+
+
+# New WebSocket endpoint for vehicle-specific location monitoring via IoT predictions
+@ws_router.websocket("/ws/vehicle/{vehicle_id}/location")
+async def vehicle_location_ws(websocket: WebSocket, vehicle_id: str):
+    """Monitor location updates from a specific vehicle's IoT device"""
+    await websocket.accept()
+
+    try:
+        # Add subscriber for this vehicle
+        if vehicle_id not in vehicle_subscribers:
+            vehicle_subscribers[vehicle_id] = []
+        vehicle_subscribers[vehicle_id].append(websocket)
+
+        # Send initial connection confirmation
+        await websocket.send_json({
+            "type": "connection_established",
+            "vehicle_id": vehicle_id,
+            "message": f"Monitoring location updates from vehicle {vehicle_id}",
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
+        # Keep connection alive
+        while True:
+            await websocket.receive_text()  # Just to keep connection alive
+
+    except WebSocketDisconnect:
+        # Remove subscriber
+        if vehicle_id in vehicle_subscribers:
+            subs = vehicle_subscribers[vehicle_id]
+            if websocket in subs:
+                subs.remove(websocket)
+                if not subs:
+                    vehicle_subscribers.pop(vehicle_id)
+        print(f"Vehicle {vehicle_id} location monitoring client disconnected")
+
+
+# New WebSocket endpoint for all vehicle location monitoring
+@ws_router.websocket("/ws/vehicles/locations")
+async def all_vehicle_locations_ws(websocket: WebSocket):
+    """Monitor location updates from all vehicles' IoT devices"""
+    await websocket.accept()
+
+    try:
+        # Add to global subscribers
+        all_vehicle_updates_subscribers.append(websocket)
+
+        # Send initial connection confirmation
+        await websocket.send_json({
+            "type": "connection_established",
+            "message": "Monitoring location updates from all vehicles",
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
+        # Keep connection alive
+        while True:
+            await websocket.receive_text()
+
+    except WebSocketDisconnect:
+        # Remove subscriber
+        if websocket in all_vehicle_updates_subscribers:
+            all_vehicle_updates_subscribers.remove(websocket)
+        print("Global vehicle location monitoring client disconnected")
+
+
+# Function to broadcast vehicle location updates (we'll call this from predict.py)
+async def broadcast_prediction(device_id: str, vehicle_id: str, prediction_data: dict, ml_request_data: dict, response_time_ms: float):
+    """Broadcast vehicle location update from IoT device ML prediction to WebSocket subscribers"""
+
+    # Prepare simplified broadcast message - vehicle location update
+    broadcast_message = {
+        "type": "location_update",
+        "timestamp": datetime.utcnow().isoformat(),
+        "vehicle_id": vehicle_id,
+        "latitude": prediction_data.get("latitude"),
+        "longitude": prediction_data.get("longitude")
+    }
+
+    # Broadcast to vehicle-specific subscribers
+    vehicle_subs = vehicle_subscribers.get(vehicle_id, [])
+    disconnected_subs = []
+
+    for ws in vehicle_subs:
+        try:
+            await ws.send_json(broadcast_message)
+        except Exception as e:
+            print(f"Error sending to vehicle {vehicle_id} subscriber: {e}")
+            disconnected_subs.append(ws)
+
+    # Remove disconnected subscribers
+    for ws in disconnected_subs:
+        vehicle_subs.remove(ws)
+
+    # Broadcast to global vehicle location subscribers
+    global_disconnected = []
+    for ws in all_vehicle_updates_subscribers:
+        try:
+            await ws.send_json(broadcast_message)
+        except Exception as e:
+            print(f"Error sending to global vehicle location subscriber: {e}")
+            global_disconnected.append(ws)
+
+    # Remove disconnected global subscribers
+    for ws in global_disconnected:
+        all_vehicle_updates_subscribers.remove(ws)

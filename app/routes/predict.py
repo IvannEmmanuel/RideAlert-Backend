@@ -7,6 +7,8 @@ from typing import Optional
 from datetime import datetime
 import math
 import os
+import time
+import asyncio
 
 router = APIRouter()
 
@@ -86,6 +88,8 @@ async def get_prediction_status():
 
 @router.post("/predict")
 async def predict(request: PredictionRequest):
+    start_time = time.time()
+
     try:
         # Check if models are ready
         status = background_loader.get_status()
@@ -191,8 +195,8 @@ async def predict(request: PredictionRequest):
         corrected_lat = wls_lat + prediction[0]
         corrected_lng = wls_lng + prediction[1]
 
-        # Determine altitude (use raw altitude if provided, otherwise estimate from ECEF)
-        corrected_altitude = request.raw_altitude if request.raw_altitude is not None else 0.0
+        # Calculate response time
+        response_time_ms = (time.time() - start_time) * 1000
 
         # Minimal response - only corrected coordinates
         response_data = {
@@ -200,13 +204,36 @@ async def predict(request: PredictionRequest):
             "longitude": corrected_lng
         }
 
+        # Broadcast prediction to WebSocket subscribers
+        try:
+            # Import here to avoid circular imports
+            from app.routes.websockets import broadcast_prediction
+
+            # Create a background task to broadcast (so it doesn't slow down the HTTP response)
+            asyncio.create_task(
+                broadcast_prediction(
+                    device_id=DEFAULT_DEVICE_ID,
+                    vehicle_id=DEFAULT_VEHICLE_ID,
+                    prediction_data=response_data,
+                    ml_request_data=request.dict(),
+                    response_time_ms=response_time_ms
+                )
+            )
+            print(
+                f"📡 Broadcasting vehicle location update from {DEFAULT_VEHICLE_ID}")
+        except Exception as e:
+            print(f"⚠️ Warning: Failed to broadcast prediction: {e}")
+
         # Log SUCCESSFUL ML prediction to tracking logs
         # This only executes if prediction was successful (no exceptions thrown above)
         try:
+            # For logging, use original raw altitude (not corrected since ML doesn't correct altitude)
+            original_altitude = request.raw_altitude if request.raw_altitude is not None else 0.0
+
             corrected_coordinates = {
                 "latitude": corrected_lat,
                 "longitude": corrected_lng,
-                "altitude": corrected_altitude
+                "altitude": original_altitude  # Use original altitude, not corrected
             }
 
             # Convert request to dict for logging
