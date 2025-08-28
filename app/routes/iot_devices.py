@@ -17,6 +17,7 @@ async def create_iot_device(
     doc = {
         "vehicle_id": payload.vehicle_id if payload else None,
         "is_active": payload.is_active if payload else None,
+        "device_name": payload.device_name if payload else None,
         "createdAt": datetime.utcnow(),
         "last_update": None
     }
