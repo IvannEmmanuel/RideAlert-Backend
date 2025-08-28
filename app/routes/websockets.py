@@ -217,4 +217,3 @@ async def all_vehicles_ws(websocket: WebSocket):
 
     except WebSocketDisconnect:
         print("Vehicle list WebSocket client disconnected")
-
