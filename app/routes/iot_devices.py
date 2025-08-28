@@ -1,15 +1,16 @@
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, HTTPException, Body, Depends
 from app.models.iot_devices import iot_devices
 from app.schemas.iot_devices import IoTDeviceCreate, IoTDevicePublic
 from app.database import get_iot_devices_collection, vehicle_collection
 from bson import ObjectId
 from datetime import datetime
-from typing import List
+from typing import List, Dict
+from app.dependencies.roles import admin_required
 
 router = APIRouter(prefix="/iot_devices", tags=["IoT Devices"])
 
 @router.post("/", response_model=IoTDevicePublic)
-async def create_iot_device(payload: IoTDeviceCreate):
+async def create_iot_device(payload: IoTDeviceCreate, current_user: Dict = Depends (admin_required)):
     """
     Create a new IoT device entry, only if vehicle_id exists.
     """
