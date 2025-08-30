@@ -5,6 +5,7 @@ from typing import Optional
 class UserRole(str, Enum):
     user = "user"
     admin = "admin"
+    superadmin = "superadmin"
 
 class Location(BaseModel):
     latitude: float
@@ -18,6 +19,7 @@ class UserBase(BaseModel):
     gender: str
     role: UserRole
     location: Optional[Location] = None
+    fleet_id: Optional[str] = None
 
 class UserCreate(UserBase):
     password: str
@@ -38,3 +40,4 @@ class UserPublic(BaseModel):
     gender: str
     address: str
     role: UserRole
+    fleet_id: Optional[str] = None
