@@ -173,61 +173,96 @@ async def track_vehicle_ws(websocket: WebSocket):
 # para count tanan vehicles continuously (bisan newly created) no need to reload
 
 
-@ws_router.websocket("/ws/vehicle-counts")
-async def vehicle_counts_ws(websocket: WebSocket):
+# @ws_router.websocket("/ws/vehicle-counts")
+# async def vehicle_counts_ws(websocket: WebSocket):
+#     await websocket.accept()
+#     try:
+#         while True:
+#             # Query DB for counts
+#             total = vehicle_collection.count_documents({})
+#             available = vehicle_collection.count_documents(
+#                 {"status": "available"})
+#             full = vehicle_collection.count_documents({"status": "full"})
+#             unavailable = vehicle_collection.count_documents(
+#                 {"status": "unavailable"})
+
+#             await websocket.send_json({
+#                 "total": total,
+#                 "available": available,
+#                 "full": full,
+#                 "unavailable": unavailable
+#             })
+
+#             # You can tune this interval or replace with a change-stream if Mongo supports it
+#             await asyncio.sleep(5)
+#     except WebSocketDisconnect:
+#         print("Vehicle count client disconnected")
+
+@ws_router.websocket("/ws/vehicle-counts/{fleet_id}")
+async def vehicle_counts_ws(websocket: WebSocket, fleet_id: str):
     await websocket.accept()
     try:
         while True:
-            # Query DB for counts
-            total = vehicle_collection.count_documents({})
-            available = vehicle_collection.count_documents(
-                {"status": "available"})
-            full = vehicle_collection.count_documents({"status": "full"})
-            unavailable = vehicle_collection.count_documents(
-                {"status": "unavailable"})
+            try:
+                # Try converting to ObjectId, fallback to string
+                try:
+                    fleet_obj_id = ObjectId(fleet_id)
+                except:
+                    fleet_obj_id = fleet_id  
 
-            await websocket.send_json({
-                "total": total,
-                "available": available,
-                "full": full,
-                "unavailable": unavailable
-            })
+                # Query vehicles where fleet_id matches either string or ObjectId
+                vehicles = list(vehicle_collection.find({
+                    "$or": [
+                        {"fleet_id": fleet_obj_id},
+                        {"fleet_id": str(fleet_obj_id)}
+                    ]
+                }))
 
-            # You can tune this interval or replace with a change-stream if Mongo supports it
-            await asyncio.sleep(5)
+                total = len(vehicles)
+                available = sum(1 for v in vehicles if v.get("status") == "available")
+                full = sum(1 for v in vehicles if v.get("status") == "full")
+                unavailable = sum(1 for v in vehicles if v.get("status") == "unavailable")
+
+                await websocket.send_json({
+                    "fleet_id": fleet_id,
+                    "total": total,
+                    "available": available,
+                    "full": full,
+                    "unavailable": unavailable
+                })
+            except Exception as e:
+                await websocket.send_json({"error": str(e)})
+
+            await asyncio.sleep(3)  # update every 3 seconds
     except WebSocketDisconnect:
-        print("Vehicle count client disconnected")
+        print(f"Client disconnected from {fleet_id} vehicle count stream")
 
 
 # para makita tanan vehicles continuously (bisan newly created) no need to reload
-@ws_router.websocket("/ws/vehicles/all")
-async def all_vehicles_ws(websocket: WebSocket):
+@ws_router.websocket("/ws/vehicles/all/{fleet_id}")
+async def all_vehicles_ws(websocket: WebSocket, fleet_id: str):
     await websocket.accept()
     try:
         while True:
             vehicles = []
-            for vehicle in vehicle_collection.find():
-                vehicle_location = vehicle.get("location", {})
-                if vehicle_location.get("latitude") and vehicle_location.get("longitude"):
-                    vehicles.append({
-                        "id": str(vehicle["_id"]),
-                        "location": {
-                            "latitude": vehicle_location["latitude"],
-                            "longitude": vehicle_location["longitude"]
-                        },
-                        "available_seats": vehicle.get("available_seats", 0),
-                        "status": vehicle.get("status", "unavailable"),
-                        "route": vehicle.get("route", ""),
-                        "driverName": vehicle.get("driverName", ""),
-                        "plate": vehicle.get("plate", "")
-                    })
+            # Filter vehicles by fleet_id
+            for vehicle in vehicle_collection.find({"fleet_id": fleet_id}):
+                vehicles.append({
+                    "id": str(vehicle["_id"]),
+                    "location": vehicle.get("location"),  # can be None
+                    "available_seats": vehicle.get("available_seats", 0),
+                    "status": vehicle.get("status", "unavailable"),
+                    "route": vehicle.get("route", ""),
+                    "driverName": vehicle.get("driverName", ""),
+                    "plate": vehicle.get("plate", "")
+                })
 
+            # Send updated list of vehicles for this fleet
             await websocket.send_json(vehicles)
-
-            await asyncio.sleep(5)
+            await asyncio.sleep(5)  # every 5 sec update
 
     except WebSocketDisconnect:
-        print("Vehicle list WebSocket client disconnected")
+        print(f"Vehicle list WebSocket client for fleet {fleet_id} disconnected")
 
 
 # New WebSocket endpoint for vehicle-specific location monitoring via IoT predictions

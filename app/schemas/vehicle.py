@@ -40,3 +40,4 @@ class VehicleTrackResponse(BaseModel):
     driverName: str
     plate: str
     device_id: str
+    fleet_id: str

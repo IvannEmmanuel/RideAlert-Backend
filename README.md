@@ -12,9 +12,14 @@
 
 -   🧑‍💻 **User registration, login, and role-based access** (admin/user)
 -   🚙 **Vehicle creation and real-time location tracking**
--   🔌 **WebSocket endpoint** for live vehicle location updates
+-   🔌 **WebSocket endpoints** for live vehicle location updates and fleet monitoring
 -   🤖 **ML-powered GPS correction** using gradient boosting algorithm
 -   🗄️ **MongoDB integration** for persistent storage
+-   📡 **Real-time vehicle location broadcasting** via IoT device predictions
+-   📊 **Enhanced tracking logs** with raw and final GPS coordinates
+-   🏢 **Fleet management** with multi-tenancy support
+-   🔧 **IoT device management** and authentication
+-   📱 **Push notifications** via Firebase Cloud Messaging
 
 ---
 
@@ -72,6 +77,16 @@
 | POST                        | `/notifications/test-fcm`       | Test FCM notification                    | User          |
 | **Real-Time Communication** |
 | WS                          | `/ws/location`                  | WebSocket for updating vehicle locations | None          |
+| WS                          | `/ws/vehicle/{id}/location`     | Monitor specific vehicle location updates | None          |
+| WS                          | `/ws/vehicles/locations`        | Monitor all vehicle location updates     | None          |
+| WS                          | `/ws/fleet/{fleet_id}/vehicles` | Monitor fleet vehicle locations          | None          |
+| **IoT Device Management**   |
+| POST                        | `/iot_devices/`                 | Create new IoT device                    | Admin         |
+| GET                         | `/iot_devices/all`              | List all IoT devices                     | None          |
+| GET                         | `/iot_devices/{device_id}`      | Get specific IoT device info             | None          |
+| **Fleet Management**        |
+| POST                        | `/fleets/`                      | Create new fleet                         | Admin         |
+| GET                         | `/fleets/all`                   | List all fleets                          | Admin         |
 
 ---
 
@@ -151,6 +166,27 @@ The RideAlert backend uses a **gradient boosting machine learning model** to imp
     ```python
     corrected_lat = wls_lat + prediction[0]  # Apply lat offset
     corrected_lng = wls_lng + prediction[1]  # Apply lng offset
+    ```
+
+7. **Enhanced Data Logging & Real-Time Broadcasting**
+    ```python
+    # Store both raw and final coordinates in tracking logs
+    tracking_data = {
+        "gps_data": {
+            "raw_coordinates": {
+                "latitude": raw_latitude,      # Original IoT device GPS
+                "longitude": raw_longitude,    # Original IoT device GPS
+                "altitude": raw_altitude       # Original IoT device GPS
+            },
+            "final_coordinates": {
+                "latitude": corrected_lat,     # WLS + ML offset prediction
+                "longitude": corrected_lng     # WLS + ML offset prediction
+            }
+        }
+    }
+    
+    # Broadcast to WebSocket subscribers in real-time
+    await broadcast_prediction(device_id, vehicle_id, prediction_data)
     ```
 
 ### **🧠 Why Predict Offsets Instead of Direct Coordinates?**
@@ -799,6 +835,138 @@ GRADIENT_BOOSTING_MODEL_V6=https://... # Model artifact URL
 ENHANCED_FEATURES_V6=https://...       # Feature definitions
 ROBUST_SCALER_V6=https://...          # Preprocessing pipeline
 FIREBASE_SERVICE_ACCOUNT_KEY=...       # Notification service
+```
+
+---
+
+## **Real-Time Vehicle Location Broadcasting System**
+
+### **📡 WebSocket Architecture**
+
+RideAlert now features a comprehensive real-time broadcasting system that automatically distributes vehicle location updates when IoT devices send ML prediction requests.
+
+#### **🎯 How It Works**
+
+1. **IoT Device Prediction**: When an IoT device sends GPS data to `/predict`
+2. **ML Processing**: Backend processes the data and generates corrected coordinates
+3. **Automatic Broadcasting**: Enhanced coordinates are immediately broadcast to WebSocket subscribers
+4. **Multi-Channel Distribution**: Updates are sent to vehicle-specific and global subscribers
+
+#### **🔗 WebSocket Endpoints**
+
+```python
+# Monitor specific vehicle location updates
+ws://localhost:8000/ws/vehicle/{vehicle_id}/location
+
+# Monitor all vehicle location updates  
+ws://localhost:8000/ws/vehicles/locations
+
+# Monitor fleet-specific vehicle updates
+ws://localhost:8000/ws/fleet/{fleet_id}/vehicles
+
+# Traditional location update endpoint
+ws://localhost:8000/ws/location
+```
+
+#### **📋 Real-Time Message Format**
+
+```json
+{
+  "type": "location_update",
+  "timestamp": "2025-08-31T10:26:48.123Z",
+  "vehicle_id": "vehicle_001", 
+  "latitude": 8.585690,
+  "longitude": 124.769452
+}
+```
+
+#### **⚡ Broadcasting Flow**
+
+```python
+# Automatic broadcasting after ML prediction
+async def predict(request: PredictionRequest):
+    # 1. ML processing
+    prediction = ml_manager.predict(input_data)
+    corrected_lat = wls_lat + prediction[0]
+    corrected_lng = wls_lng + prediction[1]
+    
+    # 2. Automatic real-time broadcasting
+    asyncio.create_task(broadcast_prediction(
+        device_id=device_id,
+        vehicle_id=vehicle_id, 
+        prediction_data={"latitude": corrected_lat, "longitude": corrected_lng}
+    ))
+    
+    # 3. Enhanced tracking logs (see below)
+    insert_gps_log(db, vehicle_id, device_id, request.dict(), corrected_coordinates)
+```
+
+### **📊 Enhanced Tracking Logs with Raw & Final Coordinates**
+
+#### **🎯 Dual Coordinate Storage**
+
+The tracking logs now preserve both original IoT device GPS readings and ML-enhanced final coordinates for comprehensive analysis.
+
+#### **📄 Database Document Structure**
+
+```json
+{
+  "_id": ObjectId("..."),
+  "vehicle_id": "vehicle_001",
+  "device_id": "iot_device_001", 
+  "gps_data": {
+    "raw_coordinates": {
+      "latitude": 8.585581,     // Original IoT device GPS
+      "longitude": 124.769386,  // Original IoT device GPS  
+      "altitude": 3.0           // Original IoT device GPS
+    },
+    "final_coordinates": {
+      "latitude": 8.585690,     // WLS + ML offset prediction
+      "longitude": 124.769452   // WLS + ML offset prediction
+    },
+    "cn0": 45.5                 // Signal quality indicator
+  },
+  "imu_data": {
+    "MeasurementX": 0.7854004,  // Accelerometer readings
+    "MeasurementY": -0.6618652,
+    "MeasurementZ": -0.06811523,
+    "BiasX": 0.0, "BiasY": 0.0, "BiasZ": 0.0,
+    "IMU_MessageType": "UncalAccel"
+  },
+  "timestamp": 1756607368251   // UTC milliseconds (timezone-corrected)
+}
+```
+
+#### **🔍 Data Analysis Benefits**
+
+1. **Accuracy Validation**: Compare raw vs final coordinates to measure ML improvement
+2. **Error Pattern Analysis**: Identify systematic GPS errors in specific regions
+3. **Model Performance Tracking**: Monitor prediction quality over time
+4. **Debugging Capability**: Trace issues back to original sensor readings
+5. **Historical Analysis**: Study GPS accuracy trends and environmental factors
+
+#### **⏰ Timezone-Accurate Timestamps**
+
+```python
+# Fixed timestamp generation for Manila timezone (UTC+8)
+timestamp_ms = int(datetime.utcnow().timestamp() * 1000)
+```
+
+### **🏢 Fleet Management & Multi-Tenancy**
+
+#### **🎯 Fleet-Based Architecture**
+
+- **Fleet Isolation**: Each company/organization has its own fleet
+- **Role-Based Access**: Fleet admins can only manage their fleet's vehicles
+- **Scalable Design**: Supports multiple companies using the same backend
+
+#### **📊 Fleet Endpoints**
+
+```python
+POST /fleets/          # Create new fleet (admin only)
+GET  /fleets/all       # List all fleets (admin only)  
+GET  /vehicles/fleet/{fleet_id}  # Get vehicles in specific fleet
+WS   /ws/fleet/{fleet_id}/vehicles  # Monitor fleet vehicle locations
 ```
 
 ---

@@ -7,6 +7,7 @@ class GPSData(BaseModel):
     longitude: float
     altitude: float
     timestamp: datetime
+    fleet_id: str
 
 class SatelliteData(BaseModel):
     Cn0DbHz: float
