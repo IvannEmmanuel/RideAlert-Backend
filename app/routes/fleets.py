@@ -6,37 +6,98 @@ from bson import ObjectId
 from datetime import datetime
 from typing import List, Dict, Optional
 from app.dependencies.roles import super_admin_required
+from app.utils.pasword_hashing import hash_password, verify_password
+from app.utils.auth_token import create_access_token
 
 router = APIRouter(prefix="/fleets", tags=["Fleets"])
 
 @router.post("/", response_model=FleetPublic)
 async def create_fleet(
-    payload: Optional[FleetCreate] = Body(None),
-    current_user: Dict = Depends(super_admin_required)
+    payload: Optional[FleetCreate] = Body(None)
 ):
     """
-    Create a new fleet. Requires admin role.
+    Create a new fleet.
     """
-
     collection = get_fleets_collection
 
-    # Defensive: Ensure payload is provided
     if not payload:
         raise HTTPException(status_code=400, detail="Fleet data is required")
 
-    # Check for duplicate company_code
+    # Check if company_code already exists
     if collection.find_one({"company_code": payload.company_code}):
         raise HTTPException(status_code=400, detail="company_code already exists")
 
+    # Extract email from first contact_info entry
+    if payload.contact_info and len(payload.contact_info) > 0:
+        email = payload.contact_info[0].email
+        if collection.find_one({"contact_info.email": email}):
+            raise HTTPException(status_code=400, detail="email already exists")
+    else:
+        raise HTTPException(status_code=400, detail="At least one contact_info entry is required")
+
+    # Convert payload to dict
     doc = payload.dict()
+
+    # Hash password
+    if "password" in doc and doc["password"]:
+        doc["password"] = hash_password(doc["password"])
+
+    # Add metadata
     now = datetime.utcnow()
-    doc.setdefault("created_at", now)
-    doc.setdefault("last_updated", now)
+    doc.update({
+        "created_at": now,
+        "last_updated": now,
+        "role": "unverified",
+        "is_active": False
+    })
 
     result = collection.insert_one(doc)
     created = collection.find_one({"_id": result.inserted_id})
 
-    return fleets(created)  # ✅ matches FleetPublic
+    return fleets(created)
+
+@router.post("/login")
+async def login_fleet(email: str = Body(...), password: str = Body(...)):
+    """
+    Login a fleet account using email and password.
+    Only fleets with role=admin are allowed.
+    """
+    collection = get_fleets_collection
+
+    # Look for email inside contact_info
+    fleet = collection.find_one({"contact_info.email": email})
+    if not fleet:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    # Verify hashed password
+    if not verify_password(password, fleet["password"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    # Role check: only allow admin
+    if fleet["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Fleet is not verified/approved")
+
+    # Extract primary email from contact_info
+    primary_email = None
+    if "contact_info" in fleet and len(fleet["contact_info"]) > 0:
+        primary_email = fleet["contact_info"][0]["email"]
+
+    # Prepare token payload
+    token_data = {
+        "fleet_id": str(fleet["_id"]),
+        "email": primary_email,
+        "role": fleet["role"]
+    }
+
+    access_token = create_access_token(token_data)
+
+    fleet_data = fleets(fleet)
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "message": "Login successful",
+        "fleet": fleet_data
+    }
 
 
 @router.get("/all", response_model=List[FleetPublic])

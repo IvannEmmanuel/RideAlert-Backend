@@ -32,7 +32,8 @@ app.add_middleware(
     CORSMiddleware,
     # Allow all origins, adjust as needed
     allow_origins=["http://localhost:5173",
-                   "https://ride-alert-admin-panel.vercel.app"],
+                   "https://ride-alert-admin-panel.vercel.app", 
+                   "http://localhost:5174"],
     allow_credentials=True,
     allow_methods=["*"],  # Allow all methods, adjust as needed
     allow_headers=["*"],  # Allow all headers, adjust as needed
