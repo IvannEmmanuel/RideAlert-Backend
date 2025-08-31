@@ -2,6 +2,7 @@ from pydantic import BaseModel
 from typing import List
 from datetime import datetime
 
+
 class GPSData(BaseModel):
     latitude: float
     longitude: float
@@ -9,15 +10,19 @@ class GPSData(BaseModel):
     timestamp: datetime
     fleet_id: str
 
+
 class SatelliteData(BaseModel):
     Cn0DbHz: float
     SvElevationDegrees: float
     Svid: int
 
+
 class MpuData(BaseModel):
     MeasurementX: float
     MeasurementY: float
     MeasurementZ: float
+
+
 class TrackingLogPublic(BaseModel):
     id: str
     vehicle_id: str

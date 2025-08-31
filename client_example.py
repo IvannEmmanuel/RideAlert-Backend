@@ -96,6 +96,11 @@ def main():
 
     # Example prediction data
     prediction_data = {
+        # Required identifiers
+        "vehicle_id": "vehicle_001",  # Replace with your actual vehicle ID
+        "device_id": "iot_device_001",  # Replace with your actual IoT device ID
+
+        # GPS and sensor data
         "Cn0DbHz": 45.5,
         "Svid": 1,
         "SvElevationDegrees": 30.0,

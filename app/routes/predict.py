@@ -13,16 +13,16 @@ import asyncio
 router = APIRouter()
 
 # Configuration variables for ML prediction logging
-# These will be updated when integrating with actual vehicle/device management
-# Will be replaced with actual vehicle ID from request
-DEFAULT_VEHICLE_ID = "vehicle_001"
-# Will be replaced with actual IoT device ID from request
-DEFAULT_DEVICE_ID = "iot_device_001"
+ENABLE_GROUND_TRUTH_COMPARISON = False  # Change to False for production
 
 ENABLE_GROUND_TRUTH_COMPARISON = False  # Change to False for production
 
 
 class PredictionRequest(BaseModel):
+    # Required identifiers - these should come from the IoT device/client
+    vehicle_id: str  # Unique identifier for the vehicle
+    device_id: str   # Unique identifier for the IoT device
+
     Cn0DbHz: float
     Svid: int
     SvElevationDegrees: float
@@ -212,15 +212,15 @@ async def predict(request: PredictionRequest):
             # Create a background task to broadcast (so it doesn't slow down the HTTP response)
             asyncio.create_task(
                 broadcast_prediction(
-                    device_id=DEFAULT_DEVICE_ID,
-                    vehicle_id=DEFAULT_VEHICLE_ID,
+                    device_id=request.device_id,
+                    vehicle_id=request.vehicle_id,
                     prediction_data=response_data,
                     ml_request_data=request.dict(),
                     response_time_ms=response_time_ms
                 )
             )
             print(
-                f"📡 Broadcasting vehicle location update from {DEFAULT_VEHICLE_ID}")
+                f"📡 Broadcasting vehicle location update from {request.vehicle_id}")
         except Exception as e:
             print(f"⚠️ Warning: Failed to broadcast prediction: {e}")
 
@@ -242,8 +242,8 @@ async def predict(request: PredictionRequest):
             # Insert comprehensive tracking log for this SUCCESSFUL prediction
             log_id = insert_gps_log(
                 db=db,
-                vehicle_id=DEFAULT_VEHICLE_ID,  # Will be replaced with actual vehicle ID
-                device_id=DEFAULT_DEVICE_ID,   # Will be replaced with actual device ID
+                vehicle_id=request.vehicle_id,
+                device_id=request.device_id,
                 ml_request_data=ml_request_data,
                 corrected_coordinates=corrected_coordinates
             )

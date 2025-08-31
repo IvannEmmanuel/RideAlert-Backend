@@ -208,7 +208,7 @@ async def vehicle_counts_ws(websocket: WebSocket, fleet_id: str):
                 try:
                     fleet_obj_id = ObjectId(fleet_id)
                 except:
-                    fleet_obj_id = fleet_id  
+                    fleet_obj_id = fleet_id
 
                 # Query vehicles where fleet_id matches either string or ObjectId
                 vehicles = list(vehicle_collection.find({
@@ -219,9 +219,11 @@ async def vehicle_counts_ws(websocket: WebSocket, fleet_id: str):
                 }))
 
                 total = len(vehicles)
-                available = sum(1 for v in vehicles if v.get("status") == "available")
+                available = sum(1 for v in vehicles if v.get(
+                    "status") == "available")
                 full = sum(1 for v in vehicles if v.get("status") == "full")
-                unavailable = sum(1 for v in vehicles if v.get("status") == "unavailable")
+                unavailable = sum(1 for v in vehicles if v.get(
+                    "status") == "unavailable")
 
                 await websocket.send_json({
                     "fleet_id": fleet_id,
@@ -262,7 +264,8 @@ async def all_vehicles_ws(websocket: WebSocket, fleet_id: str):
             await asyncio.sleep(5)  # every 5 sec update
 
     except WebSocketDisconnect:
-        print(f"Vehicle list WebSocket client for fleet {fleet_id} disconnected")
+        print(
+            f"Vehicle list WebSocket client for fleet {fleet_id} disconnected")
 
 
 # New WebSocket endpoint for vehicle-specific location monitoring via IoT predictions

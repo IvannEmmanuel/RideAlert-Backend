@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>RideAlert WebSocket Test Client</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 20px;
+                background-color: #f5f5f5;
+            }
+            .container {
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+                margin-bottom: 20px;
+            }
+            .connection-status {
+                padding: 10px;
+                margin: 10px 0;
+                border-radius: 5px;
+                font-weight: bold;
+            }
+            .connected {
+                background-color: #d4edda;
+                color: #155724;
+            }
+            .disconnected {
+                background-color: #f8d7da;
+                color: #721c24;
+            }
+            .connecting {
+                background-color: #fff3cd;
+                color: #856404;
+            }
+
+            button {
+                background-color: #007bff;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 5px;
+                cursor: pointer;
+                margin: 5px;
+            }
+            button:hover {
+                background-color: #0056b3;
+            }
+            button:disabled {
+                background-color: #6c757d;
+                cursor: not-allowed;
+            }
+
+            input[type="text"] {
+                width: 300px;
+                padding: 8px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                margin: 5px;
+            }
+
+            #console {
+                background-color: #000;
+                color: #00ff00;
+                padding: 15px;
+                border-radius: 5px;
+                height: 400px;
+                overflow-y: auto;
+                font-family: "Courier New", monospace;
+                white-space: pre-wrap;
+            }
+
+            .log-entry {
+                margin: 2px 0;
+            }
+            .log-info {
+                color: #00ff00;
+            }
+            .log-error {
+                color: #ff4444;
+            }
+            .log-warn {
+                color: #ffaa00;
+            }
+            .log-message {
+                color: #00aaff;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>🚗 RideAlert WebSocket Test Client</h1>
+
+        <div class="container">
+            <h2>📡 WebSocket Connection</h2>
+            <div id="connectionStatus" class="connection-status disconnected">
+                Status: Disconnected
+            </div>
+
+            <div>
+                <label>Vehicle ID:</label>
+                <input
+                    type="text"
+                    id="vehicleId"
+                    value="68aec15d55da5dda6ecfa1c3"
+                    placeholder="Enter vehicle ObjectId"
+                />
+                <button onclick="connectToVehicle()">Connect to Vehicle</button>
+            </div>
+
+            <div>
+                <button onclick="connectToAllVehicles()">
+                    Connect to All Vehicles
+                </button>
+                <button onclick="disconnect()">Disconnect</button>
+                <button onclick="clearConsole()">Clear Console</button>
+            </div>
+        </div>
+
+        <div class="container">
+            <h2>🧪 Test ML Prediction (Trigger Location Update)</h2>
+            <button onclick="sendPredictionRequest()">
+                Send Prediction Request
+            </button>
+            <p>
+                <small
+                    >This will trigger a location update that should be
+                    broadcast to WebSocket subscribers</small
+                >
+            </p>
+        </div>
+
+        <div class="container">
+            <h2>📊 Console Output</h2>
+            <div id="console"></div>
+        </div>
+
+        <script>
+            let ws = null;
+            let consoleElement = document.getElementById("console");
+            let statusElement = document.getElementById("connectionStatus");
+
+            // Console logging functions
+            function logToConsole(message, type = "info") {
+                const timestamp = new Date().toLocaleTimeString();
+                const logEntry = document.createElement("div");
+                logEntry.className = `log-entry log-${type}`;
+                logEntry.textContent = `[${timestamp}] ${message}`;
+                consoleElement.appendChild(logEntry);
+                consoleElement.scrollTop = consoleElement.scrollHeight;
+
+                // Also log to browser console
+                console.log(`[${timestamp}] ${message}`);
+            }
+
+            function updateStatus(status, className) {
+                statusElement.textContent = `Status: ${status}`;
+                statusElement.className = `connection-status ${className}`;
+            }
+
+            function clearConsole() {
+                consoleElement.innerHTML = "";
+            }
+
+            // WebSocket connection functions
+            function connectToVehicle() {
+                const vehicleId = document
+                    .getElementById("vehicleId")
+                    .value.trim();
+                if (!vehicleId) {
+                    logToConsole("❌ Please enter a vehicle ID", "error");
+                    return;
+                }
+
+                const wsUrl = `ws://localhost:8000/ws/vehicle/${vehicleId}/location`;
+                connectWebSocket(wsUrl, `vehicle ${vehicleId}`);
+            }
+
+            function connectToAllVehicles() {
+                const wsUrl = "ws://localhost:8000/ws/vehicles/locations";
+                connectWebSocket(wsUrl, "all vehicles");
+            }
+
+            function connectWebSocket(url, description) {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    logToConsole("🔄 Closing existing connection...", "warn");
+                    ws.close();
+                }
+
+                logToConsole(`🔌 Connecting to ${description}...`, "info");
+                logToConsole(`📡 WebSocket URL: ${url}`, "info");
+                updateStatus("Connecting...", "connecting");
+
+                try {
+                    ws = new WebSocket(url);
+
+                    ws.onopen = function () {
+                        logToConsole(`✅ Connected to ${description}!`, "info");
+                        updateStatus("Connected", "connected");
+                    };
+
+                    ws.onmessage = function (event) {
+                        try {
+                            const data = JSON.parse(event.data);
+                            logToConsole(`📨 Message received:`, "message");
+                            logToConsole(
+                                JSON.stringify(data, null, 2),
+                                "message"
+                            );
+
+                            if (data.type === "location_update") {
+                                logToConsole(
+                                    `🚗 Vehicle ${data.vehicle_id} location update:`,
+                                    "info"
+                                );
+                                logToConsole(
+                                    `📍 Lat: ${data.latitude}, Lng: ${data.longitude}`,
+                                    "info"
+                                );
+                                logToConsole(
+                                    `⏰ Time: ${data.timestamp}`,
+                                    "info"
+                                );
+                            }
+                        } catch (e) {
+                            logToConsole(
+                                `📨 Raw message: ${event.data}`,
+                                "message"
+                            );
+                        }
+                    };
+
+                    ws.onclose = function (event) {
+                        logToConsole(
+                            `🔴 Connection closed. Code: ${event.code}, Reason: ${event.reason}`,
+                            "warn"
+                        );
+                        updateStatus("Disconnected", "disconnected");
+                    };
+
+                    ws.onerror = function (error) {
+                        logToConsole(`❌ WebSocket error: ${error}`, "error");
+                        logToConsole(
+                            `❌ Check if server is running and WebSocket routes are registered`,
+                            "error"
+                        );
+                        updateStatus("Error", "disconnected");
+                    };
+                } catch (error) {
+                    logToConsole(
+                        `❌ Failed to create WebSocket: ${error}`,
+                        "error"
+                    );
+                    updateStatus("Error", "disconnected");
+                }
+            }
+
+            function disconnect() {
+                if (ws) {
+                    logToConsole("🔌 Disconnecting...", "info");
+                    ws.close();
+                    ws = null;
+                } else {
+                    logToConsole(
+                        "⚠️ No active connection to disconnect",
+                        "warn"
+                    );
+                }
+            }
+
+            // Test prediction request
+            async function sendPredictionRequest() {
+                logToConsole("🧪 Sending ML prediction request...", "info");
+
+                const predictionData = {
+                    // Required identifiers
+                    vehicle_id: "vehicle_001",
+                    device_id: "iot_device_001",
+
+                    // GPS and sensor data
+                    Cn0DbHz: 45.5,
+                    Svid: 12,
+                    SvElevationDegrees: 35.2,
+                    SvAzimuthDegrees: 120.8,
+                    IMU_MessageType: "UncalAccel",
+                    MeasurementX: 0.7854004,
+                    MeasurementY: -0.6618652,
+                    MeasurementZ: -0.06811523,
+                    BiasX: 0.0,
+                    BiasY: 0.0,
+                    BiasZ: 0.0,
+                    raw_latitude: 8.585581,
+                    raw_longitude: 124.769386,
+                    raw_altitude: 3.0,
+                };
+
+                try {
+                    const response = await fetch(
+                        "http://localhost:8000/predict",
+                        {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                            },
+                            body: JSON.stringify(predictionData),
+                        }
+                    );
+
+                    const result = await response.json();
+
+                    if (response.ok) {
+                        logToConsole(
+                            "✅ Prediction request successful!",
+                            "info"
+                        );
+                        logToConsole(
+                            `📍 Result: Lat: ${result.latitude}, Lng: ${result.longitude}`,
+                            "info"
+                        );
+                        logToConsole(
+                            "🔔 Location update should be broadcast to WebSocket subscribers",
+                            "info"
+                        );
+                    } else {
+                        logToConsole(
+                            `❌ Prediction request failed: ${
+                                result.detail || "Unknown error"
+                            }`,
+                            "error"
+                        );
+                    }
+                } catch (error) {
+                    logToConsole(
+                        `❌ Prediction request error: ${error}`,
+                        "error"
+                    );
+                }
+            }
+
+            // Initialize
+            logToConsole("🚀 RideAlert WebSocket Test Client loaded", "info");
+            logToConsole(
+                "💡 Choose a connection type above to start testing",
+                "info"
+            );
+            logToConsole(
+                "⚠️ Make sure your FastAPI server is running on localhost:8000",
+                "warn"
+            );
+        </script>
+    </body>
+</html>
