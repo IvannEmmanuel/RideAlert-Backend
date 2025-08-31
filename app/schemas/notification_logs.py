@@ -6,8 +6,10 @@ class NotificationLogBase(BaseModel):
 
 class NotificationLogCreate(NotificationLogBase):
     user_id: str
+    fleet_id: str
 
 class NotificationLogPublic(NotificationLogBase):
     id: str
     user_id: str
     createdAt: datetime
+    fleet_id: str

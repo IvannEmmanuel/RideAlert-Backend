@@ -6,7 +6,8 @@ def user_helper(user) -> dict:
         "email": user["email"],
         "address": user["address"],
         "gender": user["gender"],
-        "role": user["role"]
+        "role": user["role"],
+        "fleet_id": str(user["fleet_id"])
     }
     if "location" in user:
         user_data["location"] = user["location"]

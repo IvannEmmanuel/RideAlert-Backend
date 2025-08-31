@@ -7,6 +7,7 @@ class GPSData(BaseModel):
     longitude: float
     altitude: float
     timestamp: datetime
+    fleet_id: str
 
 class SatelliteData(BaseModel):
     Cn0DbHz: float
@@ -21,3 +22,4 @@ class TrackingLogPublic(BaseModel):
     id: str
     vehicle_id: str
     gps_data: List[GPSData]
+    fleet_id: str
