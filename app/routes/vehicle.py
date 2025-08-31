@@ -8,22 +8,31 @@ from datetime import datetime
 
 router = APIRouter(prefix="/vehicles", tags=["Vehicles"])
 
-@router.post("/create", response_model=VehicleInDB)
-def create_vehicle(vehicle: VehicleBase, current_user: dict = Depends(admin_required)):
-
+@router.post("/create/{fleet_id}", response_model=VehicleInDB)
+def create_vehicle_for_fleet(
+    fleet_id: str,
+    vehicle: VehicleBase,
+    current_user: dict = Depends(admin_required)
+):
+    # ✅ Ensure fleet_id from path is used
     if vehicle_collection.find_one({"plate": vehicle.plate}):
-        raise HTTPException(status_code=400, detail="This vehicle license plate is existed already")
+        raise HTTPException(
+            status_code=400,
+            detail="This vehicle license plate already exists"
+        )
 
     vehicle_dict = vehicle.dict()
-    result = vehicle_collection.insert_one(vehicle_dict)
+    vehicle_dict["fleet_id"] = fleet_id  # override whatever comes from body
 
+    result = vehicle_collection.insert_one(vehicle_dict)
     created_vehicle = vehicle_collection.find_one({"_id": result.inserted_id})
     if not created_vehicle:
-        raise HTTPException(status_code=500, detail="Failed to create that vehicle")
+        raise HTTPException(status_code=500, detail="Failed to create vehicle")
 
     created_vehicle_dict = {
         "id": str(created_vehicle["_id"]),
-        "location": created_vehicle["location"],
+        "fleet_id": str(created_vehicle["fleet_id"]),
+        "location": created_vehicle.get("location"),
         "vehicle_type": created_vehicle["vehicle_type"],
         "capacity": created_vehicle["capacity"],
         "available_seats": created_vehicle["available_seats"],
@@ -36,10 +45,68 @@ def create_vehicle(vehicle: VehicleBase, current_user: dict = Depends(admin_requ
 
     return VehicleInDB(**created_vehicle_dict)
 
-@router.get("/all", response_model=List[VehicleInDB])
-def get_all_vehicles(current_user: dict = Depends(user_or_admin_required)):
+# @router.post("/create", response_model=VehicleInDB)
+# def create_vehicle(vehicle: VehicleBase, current_user: dict = Depends(admin_required)):
+
+#     if vehicle_collection.find_one({"plate": vehicle.plate}):
+#         raise HTTPException(status_code=400, detail="This vehicle license plate is existed already")
+
+#     vehicle_dict = vehicle.dict()
+#     result = vehicle_collection.insert_one(vehicle_dict)
+
+#     created_vehicle = vehicle_collection.find_one({"_id": result.inserted_id})
+#     if not created_vehicle:
+#         raise HTTPException(status_code=500, detail="Failed to create that vehicle")
+
+#     created_vehicle_dict = {
+#         "id": str(created_vehicle["_id"]),
+#         "fleet_id": str(create_vehicle["fleet_id"]),
+#         "location": created_vehicle["location"],
+#         "vehicle_type": created_vehicle["vehicle_type"],
+#         "capacity": created_vehicle["capacity"],
+#         "available_seats": created_vehicle["available_seats"],
+#         "status": created_vehicle["status"],
+#         "route": created_vehicle["route"],
+#         "driverName": created_vehicle["driverName"],
+#         "plate": created_vehicle["plate"],
+#         "device_id": created_vehicle.get("device_id")
+#     }
+
+#     return VehicleInDB(**created_vehicle_dict)
+
+# @router.get("/all", response_model=List[VehicleInDB])
+# def get_all_vehicles(current_user: dict = Depends(user_or_admin_required)):
+#     try:
+#         vehicles_cursor = vehicle_collection.find({})
+#         vehicles = []
+#         for vehicle in vehicles_cursor:
+#             vehicle_data = {
+#                 "id": str(vehicle["_id"]),
+#                 "location": vehicle.get("location"),
+#                 "vehicle_type": vehicle.get("vehicle_type", ""),
+#                 "capacity": vehicle.get("capacity", 0),
+#                 "available_seats": vehicle.get("available_seats", 0),
+#                 "status": vehicle.get("status", "unavailable"),
+#                 "route": vehicle.get("route", ""),
+#                 "driverName": vehicle.get("driverName", ""),
+#                 "plate": vehicle.get("plate", ""),
+#                 "device_id": vehicle.get("device_id")
+#             }
+#             vehicles.append(VehicleInDB(**vehicle_data))
+#         return vehicles
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Error retrieving vehicles: {str(e)}")
+
+@router.get("/all/{fleet_id}", response_model=List[VehicleInDB])
+def get_all_vehicles(fleet_id: str, current_user: dict = Depends(user_or_admin_required)):
     try:
-        vehicles_cursor = vehicle_collection.find({})
+        vehicles_cursor = vehicle_collection.find({
+            "$or": [
+                {"fleet_id": fleet_id},
+                {"fleet_id": ObjectId(fleet_id)} if ObjectId.is_valid(fleet_id) else {}
+            ]
+        })
+
         vehicles = []
         for vehicle in vehicles_cursor:
             vehicle_data = {
@@ -52,13 +119,16 @@ def get_all_vehicles(current_user: dict = Depends(user_or_admin_required)):
                 "route": vehicle.get("route", ""),
                 "driverName": vehicle.get("driverName", ""),
                 "plate": vehicle.get("plate", ""),
-                "device_id": vehicle.get("device_id")
+                "device_id": vehicle.get("device_id"),
+                "fleet_id": str(vehicle.get("fleet_id", ""))
             }
             vehicles.append(VehicleInDB(**vehicle_data))
+
         return vehicles
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving vehicles: {str(e)}")
-
+    
 @router.get("/track/{id}", response_model=VehicleTrackResponse)
 def track_vehicle(id: str, current_user: dict = Depends(user_or_admin_required)):
     try:
