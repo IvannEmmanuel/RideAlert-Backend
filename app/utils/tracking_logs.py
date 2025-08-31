@@ -31,10 +31,17 @@ def insert_gps_log(db, vehicle_id: str, device_id: str, ml_request_data: dict, c
         "vehicle_id": "vehicle_001", 
         "device_id": "iot_device_001",
         "gps_data": {
-            "longitude": 124.769874,  # ML-corrected longitude
-            "latitude": 8.585123,     # ML-corrected latitude
-            "altitude": 3.0,          # Original altitude from raw_altitude
-            "cn0": 57                 # Carrier-to-noise ratio (Cn0DbHz/SNR)
+            "raw_coordinates": {
+                "latitude": 8.585581,    # Original raw GPS from IoT device
+                "longitude": 124.769386, # Original raw GPS from IoT device
+                "altitude": 3.0          # Original raw GPS from IoT device
+            },
+            "final_coordinates": {
+                "latitude": 8.585123,    # Final = WLS + ML offset prediction
+                "longitude": 124.769874  # Final = WLS + ML offset prediction
+                # Note: altitude is NOT corrected by ML (uses original raw altitude)
+            },
+            "cn0": 57                    # Carrier-to-noise ratio (Cn0DbHz/SNR)
         },
         "imu_data": {
             "MeasurementX": 0.7854004,     # From accelerometer 
@@ -57,19 +64,32 @@ def insert_gps_log(db, vehicle_id: str, device_id: str, ml_request_data: dict, c
     """
 
     # Create timestamp in milliseconds since epoch
-    timestamp_ms = int(time.time() * 1000)
+    timestamp_ms = int(datetime.utcnow().timestamp() * 1000)
 
-    # Build the log entry according to your specification
+    # Extract raw coordinates from the ML request data
+    raw_latitude = ml_request_data.get("raw_latitude")
+    raw_longitude = ml_request_data.get("raw_longitude")
+    raw_altitude = ml_request_data.get("raw_altitude")
+
+    # Build the enhanced log entry with both raw and final corrected coordinates
     log_entry = {
         "_id": ObjectId(),  # MongoDB will auto-generate if not provided
         "vehicle_id": vehicle_id,
         "device_id": device_id,
         "gps_data": {
-            "longitude": corrected_coordinates["longitude"],  # ML-corrected
-            "latitude": corrected_coordinates["latitude"],    # ML-corrected
-            # ML-corrected or original
-            "altitude": corrected_coordinates["altitude"],
-            "cn0": ml_request_data["Cn0DbHz"]  # Carrier-to-noise ratio (SNR)
+            "raw_coordinates": {
+                "latitude": raw_latitude,      # Original raw GPS reading from IoT device
+                "longitude": raw_longitude,    # Original raw GPS reading from IoT device
+                "altitude": raw_altitude       # Original raw GPS reading from IoT device
+            },
+            "final_coordinates": {
+                # Final = WLS + ML offset
+                "latitude": corrected_coordinates["latitude"],
+                # Final = WLS + ML offset
+                "longitude": corrected_coordinates["longitude"]
+                # Altitude not included since ML doesn't correct it (uses original)
+            },
+            "cn0": ml_request_data["Cn0DbHz"]  # Signal quality indicator
         },
         "imu_data": {
             "MeasurementX": ml_request_data["MeasurementX"],
@@ -87,6 +107,6 @@ def insert_gps_log(db, vehicle_id: str, device_id: str, ml_request_data: dict, c
     result = db["tracking_logs"].insert_one(log_entry)
 
     print(
-        f"📝 Tracking log inserted: Vehicle {vehicle_id}, Device {device_id}, Timestamp {timestamp_ms}")
+        f"📝 Enhanced tracking log inserted: Vehicle {vehicle_id}, Device {device_id}, Raw: ({raw_latitude:.6f}, {raw_longitude:.6f}), Final: ({corrected_coordinates['latitude']:.6f}, {corrected_coordinates['longitude']:.6f})")
 
     return result.inserted_id  # Return the inserted document ID
