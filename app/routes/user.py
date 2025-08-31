@@ -57,7 +57,8 @@ def login_user(login_data: UserLogin):
             "gender": user.get("gender"),
             "address": user.get("address"),
             "role": user.get("role"),
-            "location": user.get("location", {})
+            "location": user.get("location", {}),
+            "fleet_id": user.get("fleet_id")
         }
     })
 
