@@ -279,6 +279,7 @@
                     // Required identifiers
                     vehicle_id: "vehicle_001",
                     device_id: "iot_device_001",
+                    fleet_id: "fleet_001",
 
                     // GPS and sensor data
                     Cn0DbHz: 45.5,
@@ -296,7 +297,6 @@
                     raw_longitude: 124.769386,
                     raw_altitude: 3.0,
                 };
-
                 try {
                     const response = await fetch(
                         "http://localhost:8000/predict",

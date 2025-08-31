@@ -99,6 +99,7 @@ def main():
         # Required identifiers
         "vehicle_id": "vehicle_001",  # Replace with your actual vehicle ID
         "device_id": "iot_device_001",  # Replace with your actual IoT device ID
+        "fleet_id": "fleet_001",  # Replace with your actual fleet ID
 
         # GPS and sensor data
         "Cn0DbHz": 45.5,
@@ -115,9 +116,7 @@ def main():
         "WlsPositionXEcefMeters": -2700000.0,
         "WlsPositionYEcefMeters": -4300000.0,
         "WlsPositionZEcefMeters": 3800000.0
-    }
-
-    # Make prediction
+    }    # Make prediction
     print("\n🎯 Making prediction...")
     result = client.predict(prediction_data)
 

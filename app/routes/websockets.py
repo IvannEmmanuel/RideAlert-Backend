@@ -332,7 +332,7 @@ async def all_vehicle_locations_ws(websocket: WebSocket):
 
 
 # Function to broadcast vehicle location updates (we'll call this from predict.py)
-async def broadcast_prediction(device_id: str, vehicle_id: str, prediction_data: dict, ml_request_data: dict, response_time_ms: float):
+async def broadcast_prediction(device_id: str, vehicle_id: str, fleet_id: str, prediction_data: dict, ml_request_data: dict, response_time_ms: float):
     """Broadcast vehicle location update from IoT device ML prediction to WebSocket subscribers"""
 
     # Prepare simplified broadcast message - vehicle location update

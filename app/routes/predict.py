@@ -15,14 +15,12 @@ router = APIRouter()
 # Configuration variables for ML prediction logging
 ENABLE_GROUND_TRUTH_COMPARISON = False  # Change to False for production
 
-ENABLE_GROUND_TRUTH_COMPARISON = False  # Change to False for production
-
 
 class PredictionRequest(BaseModel):
     # Required identifiers - these should come from the IoT device/client
     vehicle_id: str  # Unique identifier for the vehicle
     device_id: str   # Unique identifier for the IoT device
-
+    fleet_id: str
     Cn0DbHz: float
     Svid: int
     SvElevationDegrees: float
@@ -214,6 +212,7 @@ async def predict(request: PredictionRequest):
                 broadcast_prediction(
                     device_id=request.device_id,
                     vehicle_id=request.vehicle_id,
+                    fleet_id=request.fleet_id,
                     prediction_data=response_data,
                     ml_request_data=request.dict(),
                     response_time_ms=response_time_ms
@@ -244,6 +243,7 @@ async def predict(request: PredictionRequest):
                 db=db,
                 vehicle_id=request.vehicle_id,
                 device_id=request.device_id,
+                fleet_id=request.fleet_id,
                 ml_request_data=ml_request_data,
                 corrected_coordinates=corrected_coordinates
             )

@@ -3,7 +3,7 @@ from bson import ObjectId
 import time
 
 
-def insert_gps_log(db, vehicle_id: str, device_id: str, ml_request_data: dict, corrected_coordinates: dict):
+def insert_gps_log(db, vehicle_id: str, device_id: str, fleet_id: str, ml_request_data: dict, corrected_coordinates: dict):
     """
     Insert ML prediction log into MongoDB Atlas with complete sensor data structure
 
@@ -76,6 +76,7 @@ def insert_gps_log(db, vehicle_id: str, device_id: str, ml_request_data: dict, c
         "_id": ObjectId(),  # MongoDB will auto-generate if not provided
         "vehicle_id": vehicle_id,
         "device_id": device_id,
+        "fleet_id": fleet_id,
         "gps_data": {
             "raw_coordinates": {
                 "latitude": raw_latitude,      # Original raw GPS reading from IoT device
