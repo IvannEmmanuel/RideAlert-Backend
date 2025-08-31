@@ -1,3 +1,5 @@
+#fleet_id ang kulang wala nako na set
+
 from fastapi import APIRouter, HTTPException, Depends, Body
 from app.utils.notifications import send_proximity_notification, send_fcm_notification
 from app.dependencies.roles import user_required
@@ -21,6 +23,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/notifications", tags=["Notifications"])
 
 user_notification_subscribers: Dict[str, List[WebSocket]] = {}
+user_fleet_notification_subscribers: Dict[str, List[WebSocket]] = {}
 
 class ProximityNotificationRequest(BaseModel):
     user_id: str
@@ -87,13 +90,12 @@ async def test_fcm_notification(
         raise HTTPException(status_code=500, detail=str(e))
 
 #para mag create og notification then matik na dayon siya mo send og notification didto sa specific user (test-fcm combination)
-from fastapi import BackgroundTasks
-
 @router.post("/", response_model=NotificationLogPublic)
 async def create_notification_log(log: NotificationLogCreate):
     ph_tz = timezone("Asia/Manila")
     doc = {
         "user_id": ObjectId(log.user_id),
+        "fleet_id": ObjectId(log.fleet_id),  # add fleet_id here
         "message": log.message,
         "createdAt": datetime.now(ph_tz).isoformat()
     }
@@ -103,15 +105,15 @@ async def create_notification_log(log: NotificationLogCreate):
     new_log = notification_logs_collection.find_one({"_id": result.inserted_id})
     public_log = notification_log_class(new_log)
 
-    user_id_str = str(log.user_id)
+    user_fleet_key = f"{str(log.user_id)}:{str(log.fleet_id)}"  # user+fleet key
 
     # 🔔 Broadcast via WebSocket
-    if user_id_str in user_notification_subscribers:
-        for ws in user_notification_subscribers[user_id_str]:
+    if user_fleet_key in user_fleet_notification_subscribers:
+        for ws in user_fleet_notification_subscribers[user_fleet_key]:
             try:
-                ws.send_text(json.dumps(public_log.dict()))
+                await ws.send_text(json.dumps(public_log))
             except Exception as e:
-                print(f"Error sending WebSocket notification to user {user_id_str}: {e}")
+                print(f"Error sending WebSocket notification to {user_fleet_key}: {e}")
 
     # 📱 Send FCM push notification asynchronously
     async def send_fcm_async():
@@ -126,7 +128,7 @@ async def create_notification_log(log: NotificationLogCreate):
                         body=log.message
                     )
         except Exception as e:
-            print(f"Error sending FCM notification to user {user_id_str}: {e}")
+            print(f"Error sending FCM notification to {user_fleet_key}: {e}")
 
     asyncio.create_task(send_fcm_async())
 
