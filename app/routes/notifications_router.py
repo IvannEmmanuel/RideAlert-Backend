@@ -1,3 +1,5 @@
+#fleet_id ang kulang wala nako na set
+
 from fastapi import APIRouter, HTTPException, Depends, Body
 from app.utils.notifications import send_proximity_notification, send_fcm_notification
 from app.dependencies.roles import user_required
