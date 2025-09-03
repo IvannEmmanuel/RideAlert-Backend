@@ -5,6 +5,7 @@ from app.utils.tracking_logs import insert_gps_log
 from app.database import db
 from typing import Optional
 from datetime import datetime
+from bson import ObjectId
 import math
 import os
 import time
@@ -222,6 +223,33 @@ async def predict(request: PredictionRequest):
                 f"📡 Broadcasting vehicle location update from {request.vehicle_id}")
         except Exception as e:
             print(f"⚠️ Warning: Failed to broadcast prediction: {e}")
+
+        # Update vehicle location in the vehicles collection with corrected coordinates
+        try:
+            # Update the vehicle's location with corrected coordinates
+            # Set the entire location object to handle cases where location might be null
+            update_result = db.vehicles.update_one(
+                {"_id": ObjectId(request.vehicle_id)},
+                {
+                    "$set": {
+                        "location": {
+                            "latitude": corrected_lat,
+                            "longitude": corrected_lng
+                        }
+                    }
+                }
+            )
+
+            if update_result.matched_count > 0:
+                print(
+                    f"🚗 Vehicle {request.vehicle_id} location updated: lat={corrected_lat:.6f}, lng={corrected_lng:.6f}")
+            else:
+                print(
+                    f"⚠️ Warning: Vehicle {request.vehicle_id} not found in vehicles collection")
+
+        except Exception as e:
+            # Don't fail the prediction response if vehicle update fails, but log the error
+            print(f"⚠️ Warning: Failed to update vehicle location: {e}")
 
         # Log SUCCESSFUL ML prediction to tracking logs
         # This only executes if prediction was successful (no exceptions thrown above)

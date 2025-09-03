@@ -124,8 +124,9 @@ def main():
         print("✅ Prediction successful!")
         data = result["data"]
         print(
-            f"Corrected coordinates: {data['corrected_latitude']}, {data['corrected_longitude']}")
+            f"Corrected coordinates: {data['latitude']}, {data['longitude']}")
         print(f"Full response: {json.dumps(data, indent=2)}")
+        print(f"🚗 Vehicle location should now be updated in the database!")
     else:
         print(f"❌ Prediction failed: {result.get('message', 'Unknown error')}")
 
