@@ -289,7 +289,8 @@ async def available_vehicles_ws(websocket: WebSocket, fleet_id: str):
                     "available_seats": vehicle.get("available_seats", 0),
                     "route": vehicle.get("route", ""),
                     "driverName": vehicle.get("driverName", ""),
-                    "plate": vehicle.get("plate", "")
+                    "plate": vehicle.get("plate", ""),
+                    "status": vehicle.get("status", "unavailable")
                 })
 
             await websocket.send_json(vehicles)
