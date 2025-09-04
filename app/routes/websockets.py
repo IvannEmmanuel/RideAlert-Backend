@@ -266,6 +266,37 @@ async def all_vehicles_ws(websocket: WebSocket, fleet_id: str):
     except WebSocketDisconnect:
         print(
             f"Vehicle list WebSocket client for fleet {fleet_id} disconnected")
+        
+@ws_router.websocket("/ws/vehicles/available/{fleet_id}")
+async def available_vehicles_ws(websocket: WebSocket, fleet_id: str):
+    """Stream only available vehicles that have a location"""
+    await websocket.accept()
+    try:
+        while True:
+            vehicles = []
+            # Query: only available vehicles with non-null latitude and longitude
+            query = {
+                "fleet_id": fleet_id,
+                "status": "available",
+                "location.latitude": {"$ne": None},
+                "location.longitude": {"$ne": None}
+            }
+
+            for vehicle in vehicle_collection.find(query):
+                vehicles.append({
+                    "id": str(vehicle["_id"]),
+                    "location": vehicle.get("location"),
+                    "available_seats": vehicle.get("available_seats", 0),
+                    "route": vehicle.get("route", ""),
+                    "driverName": vehicle.get("driverName", ""),
+                    "plate": vehicle.get("plate", "")
+                })
+
+            await websocket.send_json(vehicles)
+            await asyncio.sleep(5)  # send updates every 5 seconds
+
+    except WebSocketDisconnect:
+        print(f"Available vehicle stream for fleet {fleet_id} disconnected")
 
 
 # New WebSocket endpoint for vehicle-specific location monitoring via IoT predictions
