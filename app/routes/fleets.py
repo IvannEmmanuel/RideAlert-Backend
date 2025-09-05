@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Body, Depends
+from fastapi import APIRouter, HTTPException, Body, Depends, WebSocket, WebSocketDisconnect
 from app.models.fleets import fleets
 from app.schemas.fleets import FleetCreate, FleetPublic
 from app.database import get_fleets_collection
@@ -8,6 +8,8 @@ from typing import List, Dict, Optional
 from app.dependencies.roles import super_admin_required
 from app.utils.pasword_hashing import hash_password, verify_password
 from app.utils.auth_token import create_access_token
+import asyncio
+from fastapi.encoders import jsonable_encoder
 
 router = APIRouter(prefix="/fleets", tags=["Fleets"])
 
@@ -99,16 +101,49 @@ async def login_fleet(email: str = Body(...), password: str = Body(...)):
         "fleet": fleet_data
     }
 
-
-@router.get("/all", response_model=List[FleetPublic])
-def list_fleets():
+#get all the companies
+@router.websocket("/ws/all")
+async def websocket_all_fleets(websocket: WebSocket):
     """
-    Get all fleets.
+    WebSocket endpoint to stream all fleets in real-time.
     """
+    await websocket.accept()
     collection = get_fleets_collection
-    fleet_docs = collection.find()
-    return [fleets(f) for f in fleet_docs]
 
+    def serialize_datetime(obj):
+        """Convert datetime and ObjectId objects to strings."""
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        elif isinstance(obj, ObjectId):
+            return str(obj)
+        return obj
+
+    try:
+        while True:
+            fleet_docs = collection.find()
+            fleets_list = [
+                {
+                    key: serialize_datetime(value) if isinstance(value, (datetime, ObjectId)) else value
+                    for key, value in fleets(f).items()
+                } for f in fleet_docs
+            ]  # Convert datetime and ObjectId fields to strings
+            await websocket.send_json({"fleets": fleets_list})  # Ensure {fleets: [...]} format
+            await asyncio.sleep(5)  # Send updates every 5 seconds
+    except WebSocketDisconnect:
+        print("Client disconnected")
+
+#get total number of companies
+@router.websocket("/ws/count-fleets")
+async def websocket_count_fleets(websocket: WebSocket):
+    await websocket.accept()
+    collection = get_fleets_collection
+
+    try:
+        while True:
+            await websocket.send_json({"total_fleets": collection.count_documents({})})
+            await asyncio.sleep(5)  # Adjust interval as needed; sends update every 5s
+    except WebSocketDisconnect:
+        print("Client disconnected")
 
 @router.get("/{fleet_id}", response_model=FleetPublic)
 def get_fleet(fleet_id: str):

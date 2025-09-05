@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from app.database import vehicle_collection, tracking_logs_collection
 from bson import ObjectId
 from app.dependencies.roles import user_required, admin_required, user_or_admin_required
 from app.schemas.vehicle import VehicleTrackResponse, Location, VehicleStatus, VehicleBase, VehicleInDB
 from typing import List
 from datetime import datetime
+import asyncio
 
 router = APIRouter(prefix="/vehicles", tags=["Vehicles"])
 
@@ -155,24 +156,6 @@ def track_vehicle(id: str, current_user: dict = Depends(user_or_admin_required))
         driverName=vehicle.get("driverName", ""),
         plate=vehicle.get("plate", "")
     )
-
-#ADDED IT INTO THE WEBSOCKET ( PWEDE NA MA DELETE )
-
-@router.get("/count")
-def count_vehicles(current_user: dict = Depends(user_or_admin_required)):
-    try:
-        total = vehicle_collection.count_documents({})
-        return {"count": total}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error counting vehicles: {str(e)}")
-    
-@router.get("/count/available")
-def count_available_vehicles(current_user: dict = Depends(user_or_admin_required)):
-    try:
-        available = vehicle_collection.count_documents({"status": "available"})
-        return {"count": available}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error counting available vehicles: {str(e)}")
     
 # ADDED TO WEBSOCKET
 
@@ -186,3 +169,16 @@ def assign_device_id(vehicle_id: str, device_id: str, current_user: dict = Depen
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Vehicle not found")
     return {"message": "Device ID assigned successfully"}
+
+@router.websocket("/ws/count-vehicles")
+async def websocket_count_vehicles(websocket: WebSocket):
+    await websocket.accept()
+    collection = vehicle_collection  # use your existing Mongo collection
+
+    try:
+        while True:
+            total_vehicles = collection.count_documents({})
+            await websocket.send_json({"total_vehicles": total_vehicles})
+            await asyncio.sleep(5)  # adjust interval as needed
+    except WebSocketDisconnect:
+        print("Client disconnected")

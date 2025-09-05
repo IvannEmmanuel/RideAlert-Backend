@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Body
+from fastapi import APIRouter, HTTPException, Depends, Body, WebSocket, WebSocketDisconnect
 from app.schemas.user import UserCreate, UserInDB, UserLogin, Location
 from app.database import user_collection
 from app.models.user import user_helper
@@ -8,7 +8,7 @@ from app.utils.pasword_hashing import verify_password
 from app.utils.auth_token import create_access_token
 from fastapi.responses import JSONResponse
 from app.dependencies.roles import admin_required, user_required, user_or_admin_required
-
+import asyncio
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -107,3 +107,15 @@ async def clear_fcm_token(user_id: str):
     if result.matched_count == 1:
         return {"message": "FCM token cleared"}
     raise HTTPException(status_code=404, detail="User not found")
+
+@router.websocket("/ws/count-users")
+async def websocket_count_users(websocket: WebSocket):
+    await websocket.accept()
+    collection = user_collection
+
+    try:
+        while True:
+            await websocket.send_json({"total_users": collection.count_documents({})})
+            await asyncio.sleep(5)  # Send updates every 5 seconds
+    except WebSocketDisconnect:
+        print("Client disconnected")
