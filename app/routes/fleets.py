@@ -132,6 +132,56 @@ async def websocket_all_fleets(websocket: WebSocket):
     except WebSocketDisconnect:
         print("Client disconnected")
 
+@router.websocket("/{fleet_id}/ws")
+async def websocket_fleet_details(websocket: WebSocket, fleet_id: str):
+    """
+    WebSocket endpoint to stream specific fleet details in real-time.
+    """
+    await websocket.accept()
+    collection = get_fleets_collection
+
+    def serialize_datetime(obj):
+        """Convert datetime and ObjectId objects to strings."""
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        elif isinstance(obj, ObjectId):
+            return str(obj)
+        return obj
+
+    try:
+        # Validate ObjectId format
+        if not ObjectId.is_valid(fleet_id):
+            await websocket.send_json({"error": "Invalid fleet ID format"})
+            await websocket.close()
+            return
+
+        while True:
+            fleet_doc = collection.find_one({"_id": ObjectId(fleet_id)})
+            
+            if not fleet_doc:
+                await websocket.send_json({"error": "Fleet not found"})
+                await websocket.close()
+                break
+            
+            # Convert the fleet document using your existing fleets function
+            fleet_data = fleets(fleet_doc)
+            
+            # Serialize datetime and ObjectId fields
+            serialized_data = {
+                key: serialize_datetime(value) if isinstance(value, (datetime, ObjectId)) else value
+                for key, value in fleet_data.items()
+            }
+            
+            await websocket.send_json(serialized_data)
+            await asyncio.sleep(5)  # Send updates every 5 seconds
+            
+    except WebSocketDisconnect:
+        print(f"Client disconnected from fleet {fleet_id} details")
+    except Exception as e:
+        print(f"Error in fleet details WebSocket: {e}")
+        await websocket.send_json({"error": str(e)})
+        await websocket.close()
+
 #get total number of companies
 @router.websocket("/ws/count-fleets")
 async def websocket_count_fleets(websocket: WebSocket):
