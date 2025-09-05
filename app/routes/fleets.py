@@ -76,7 +76,7 @@ async def login_fleet(email: str = Body(...), password: str = Body(...)):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     # Role check: only allow admin
-    if fleet["role"] != "admin":
+    if fleet["role"] not in ["admin", "superadmin"]:
         raise HTTPException(status_code=403, detail="Fleet is not verified/approved")
 
     # Extract primary email from contact_info

@@ -6,6 +6,7 @@ from enum import Enum
 class FleetRole(str, Enum):
     unverified = "unverified"
     admin = "admin"
+    superadmin = "superadmin"
 
 class SubscriptionPlan(str, Enum):
     basic = "Basic"
