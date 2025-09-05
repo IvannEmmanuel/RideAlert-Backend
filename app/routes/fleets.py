@@ -106,6 +106,7 @@ async def login_fleet(email: str = Body(...), password: str = Body(...)):
 async def websocket_all_fleets(websocket: WebSocket):
     """
     WebSocket endpoint to stream all fleets in real-time.
+    Excludes fleets with role 'superadmin'.
     """
     await websocket.accept()
     collection = get_fleets_collection
@@ -120,7 +121,8 @@ async def websocket_all_fleets(websocket: WebSocket):
 
     try:
         while True:
-            fleet_docs = collection.find()
+            # Filter out documents where role is "superadmin"
+            fleet_docs = collection.find({"role": {"$ne": "superadmin"}})
             fleets_list = [
                 {
                     key: serialize_datetime(value) if isinstance(value, (datetime, ObjectId)) else value
@@ -190,10 +192,13 @@ async def websocket_count_fleets(websocket: WebSocket):
 
     try:
         while True:
-            await websocket.send_json({"total_fleets": collection.count_documents({})})
-            await asyncio.sleep(5)  # Adjust interval as needed; sends update every 5s
+            # Count all fleets except those with role "superadmin"
+            total_fleets = collection.count_documents({"role": {"$ne": "superadmin"}})
+            await websocket.send_json({"total_fleets": total_fleets})
+            await asyncio.sleep(5)  # Adjust interval as needed
     except WebSocketDisconnect:
         print("Client disconnected")
+
 
 @router.get("/{fleet_id}", response_model=FleetPublic)
 def get_fleet(fleet_id: str):
