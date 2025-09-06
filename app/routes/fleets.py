@@ -20,6 +20,12 @@ plan_prices = {
     SubscriptionPlan.enterprise: 2500
 }
 
+max_vehicles_limits = {
+    SubscriptionPlan.basic: 5,
+    SubscriptionPlan.premium: 25,
+    SubscriptionPlan.enterprise: 100
+}
+
 @router.post("/", response_model=FleetPublic)
 async def create_fleet(
     payload: Optional[FleetCreate] = Body(None)
@@ -58,7 +64,8 @@ async def create_fleet(
         "last_updated": now,
         "role": "unverified",
         "is_active": True,
-        "plan_price": plan_prices[doc["subscription_plan"]]
+        "plan_price": plan_prices[doc["subscription_plan"]],
+        "max_vehicles": max_vehicles_limits[doc["subscription_plan"]]
     })
 
     result = collection.insert_one(doc)

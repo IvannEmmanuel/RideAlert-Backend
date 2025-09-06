@@ -24,7 +24,6 @@ class FleetBase(BaseModel):
     contact_info: List[ContactInfo]
     subscription_plan: SubscriptionPlan
     is_active: Optional[bool] = None
-    max_vehicles: int
     role: FleetRole = FleetRole.unverified
     last_updated: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -38,6 +37,17 @@ class FleetBase(BaseModel):
             SubscriptionPlan.enterprise: 2500
         }
         return prices[self.subscription_plan]
+
+    @property
+    def max_vehicles(self) -> int:
+        """Returns the max vehicles allowed for the subscription plan."""
+        limits = {
+            SubscriptionPlan.basic: 5,
+            SubscriptionPlan.premium: 25,
+            SubscriptionPlan.enterprise: 100
+        }
+        return limits[self.subscription_plan]
+
 class FleetCreate(FleetBase):
     password: str  # Accept plain password for creation
 
