@@ -24,3 +24,4 @@ class ConnectionManager:
 fleet_count_manager = ConnectionManager()  # For /fleets/ws/count-fleets
 fleet_all_manager = ConnectionManager()    # For /fleets/ws/all
 user_count_manager = ConnectionManager()   # For /users/ws/count-users
+vehicle_count_manager = ConnectionManager() # For /vehicles/ws/count-vehicles

@@ -1,21 +1,22 @@
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from app.database import vehicle_collection, tracking_logs_collection
 from bson import ObjectId
-from app.dependencies.roles import user_required, admin_required, user_or_admin_required
+from app.dependencies.roles import user_required, admin_required, user_or_admin_required, super_and_admin_required
 from app.schemas.vehicle import VehicleTrackResponse, Location, VehicleStatus, VehicleBase, VehicleInDB
 from typing import List
 from datetime import datetime
 import asyncio
+from app.utils.ws_manager import vehicle_count_manager
 
 router = APIRouter(prefix="/vehicles", tags=["Vehicles"])
 
 @router.post("/create/{fleet_id}", response_model=VehicleInDB)
-def create_vehicle_for_fleet(
+async def create_vehicle_for_fleet(
     fleet_id: str,
     vehicle: VehicleBase,
-    current_user: dict = Depends(admin_required)
+    current_user: dict = Depends(super_and_admin_required)
 ):
-    # ✅ Ensure fleet_id from path is used
+    # Ensure fleet_id from path is used
     if vehicle_collection.find_one({"plate": vehicle.plate}):
         raise HTTPException(
             status_code=400,
@@ -29,6 +30,10 @@ def create_vehicle_for_fleet(
     created_vehicle = vehicle_collection.find_one({"_id": result.inserted_id})
     if not created_vehicle:
         raise HTTPException(status_code=500, detail="Failed to create vehicle")
+
+    # Broadcast vehicle count after create
+    total_vehicles = vehicle_collection.count_documents({})
+    await vehicle_count_manager.broadcast({"total_vehicles": total_vehicles})
 
     created_vehicle_dict = {
         "id": str(created_vehicle["_id"]),
@@ -162,7 +167,7 @@ def track_vehicle(id: str, current_user: dict = Depends(user_or_admin_required))
 
 #You can create a separate endpoint to update device_id when the IoT device is registered
 @router.put("/assign-device/{vehicle_id}")
-def assign_device_id(vehicle_id: str, device_id: str, current_user: dict = Depends(admin_required)):
+def assign_device_id(vehicle_id: str, device_id: str, current_user: dict = Depends(super_and_admin_required)):
     result = vehicle_collection.update_one(
         {"_id": ObjectId(vehicle_id)},
         {"$set": {"device_id": device_id}}
@@ -171,15 +176,37 @@ def assign_device_id(vehicle_id: str, device_id: str, current_user: dict = Depen
         raise HTTPException(status_code=404, detail="Vehicle not found")
     return {"message": "Device ID assigned successfully"}
 
+@router.delete("/{vehicle_id}")
+async def delete_vehicle(vehicle_id: str, current_user: dict = Depends(super_and_admin_required)):
+    """
+    Delete a vehicle and broadcast vehicle count.
+    """
+    try:
+        result = vehicle_collection.delete_one({"_id": ObjectId(vehicle_id)})
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Vehicle not found")
+
+        # Broadcast vehicle count after delete
+        total_vehicles = vehicle_collection.count_documents({})
+        await vehicle_count_manager.broadcast({"total_vehicles": total_vehicles})
+
+        return {"message": "Vehicle deleted"}
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid vehicle ID format")
+
 @router.websocket("/ws/count-vehicles")
 async def websocket_count_vehicles(websocket: WebSocket):
-    await websocket.accept()
-    collection = vehicle_collection  # use your existing Mongo collection
+    await vehicle_count_manager.connect(websocket)
+    collection = vehicle_collection
+
+    # Send initial count right after connect
+    total_vehicles = collection.count_documents({})
+    await websocket.send_json({"total_vehicles": total_vehicles})
 
     try:
         while True:
-            total_vehicles = collection.count_documents({})
-            await websocket.send_json({"total_vehicles": total_vehicles})
-            await asyncio.sleep(5)  # adjust interval as needed
+            # Keep connection alive
+            await websocket.receive_text()
     except WebSocketDisconnect:
-        print("Client disconnected")
+        vehicle_count_manager.disconnect(websocket)
+        print("Client disconnected from /ws/count-vehicles")

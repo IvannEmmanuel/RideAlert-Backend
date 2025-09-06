@@ -23,3 +23,11 @@ def user_or_admin_required(current_user: dict = Depends(get_current_user)):
             detail="You do not have permission to access this resource."
         )
     return current_user
+
+def super_and_admin_required(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") not in ("superadmin", "admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to access this resource."
+        )
+    return current_user
