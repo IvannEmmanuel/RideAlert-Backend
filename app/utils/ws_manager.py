@@ -51,3 +51,4 @@ user_count_manager = ConnectionManager()   # For /users/ws/count-users
 vehicle_count_manager = ConnectionManager() # For /vehicles/ws/count-vehicles
 vehicle_all_manager = FleetConnectionManager() # For /vehicles/ws/vehicles/all/{fleet_id}
 fleet_details_manager = FleetConnectionManager() # For /fleets/{fleet_id}/ws
+iot_device_all_manager = ConnectionManager() # For /iot_devices/ws/all
