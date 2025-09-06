@@ -25,7 +25,6 @@ class MpuData(BaseModel):
 
 class TrackingLogPublic(BaseModel):
     id: str
-    vehicle_id: str
     fleet_id: str
     device_id: str
     gps_data: List[GPSData]

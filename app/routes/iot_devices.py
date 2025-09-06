@@ -10,6 +10,24 @@ from app.schemas.iot_devices import IoTDeviceModel
 
 router = APIRouter(prefix="/iot_devices", tags=["IoT Devices"])
 
+
+@router.post("/change-route-bound-status/{vehicle_id}")
+async def change_route_status(
+    vehicle_id: str,
+    new_status: str = Body(..., embed=True),
+):
+    # Update the vehicle's status in the database
+    result = vehicle_collection.update_one(
+        {"_id": ObjectId(vehicle_id)},
+        {"$set": {"bound_for": new_status}}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(
+            status_code=404, detail="Vehicle not found or status not changed")
+
+    return {"message": "Vehicle status updated successfully"}
+
+
 @router.post("/", response_model=IoTDevicePublic)
 async def create_iot_device(
     payload: Optional[IoTDeviceCreate] = Body(None),
@@ -27,7 +45,8 @@ async def create_iot_device(
     }
 
     if doc["vehicle_id"]:
-        vehicle = vehicle_collection.find_one({"_id": ObjectId(doc["vehicle_id"])})
+        vehicle = vehicle_collection.find_one(
+            {"_id": ObjectId(doc["vehicle_id"])})
         if not vehicle:
             raise HTTPException(status_code=404, detail="Vehicle not found")
 
@@ -36,9 +55,11 @@ async def create_iot_device(
 
     return iot_devices(created)  # ✅ matches IoTDevicePublic
 
+
 @router.get("/device-models", response_model=List[str])
 async def get_device_models():
     return [model.value for model in IoTDeviceModel]
+
 
 @router.get("/all", response_model=List[IoTDevicePublic])
 def list_iot_devices():
@@ -48,6 +69,7 @@ def list_iot_devices():
     collection = get_iot_devices_collection
     devices = collection.find()
     return [iot_devices(device) for device in devices]
+
 
 @router.get("/{device_id}", response_model=IoTDevicePublic)
 def get_iot_device(device_id: str):
@@ -59,6 +81,7 @@ def get_iot_device(device_id: str):
     if not device:
         raise HTTPException(status_code=404, detail="IoT device not found")
     return iot_devices(device)
+
 
 @router.patch("/{device_id}", response_model=IoTDevicePublic)
 def update_iot_device(device_id: str, payload: dict = Body(...)):
@@ -74,7 +97,8 @@ def update_iot_device(device_id: str, payload: dict = Body(...)):
         update_fields["last_update"] = payload["last_update"]
 
     if not update_fields:
-        raise HTTPException(status_code=400, detail="No valid fields to update")
+        raise HTTPException(
+            status_code=400, detail="No valid fields to update")
 
     result = collection.update_one(
         {"_id": ObjectId(device_id)},
@@ -82,7 +106,8 @@ def update_iot_device(device_id: str, payload: dict = Body(...)):
     )
 
     if result.modified_count == 0:
-        raise HTTPException(status_code=404, detail="IoT device not found or not updated")
+        raise HTTPException(
+            status_code=404, detail="IoT device not found or not updated")
 
     updated = collection.find_one({"_id": ObjectId(device_id)})
     return iot_devices(updated)

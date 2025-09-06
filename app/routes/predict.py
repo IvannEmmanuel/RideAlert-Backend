@@ -269,7 +269,6 @@ async def predict(request: PredictionRequest):
             # Insert comprehensive tracking log for this SUCCESSFUL prediction
             log_id = insert_gps_log(
                 db=db,
-                vehicle_id=request.vehicle_id,
                 device_id=request.device_id,
                 fleet_id=request.fleet_id,
                 ml_request_data=ml_request_data,
