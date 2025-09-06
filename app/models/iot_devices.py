@@ -3,7 +3,7 @@ from typing import Dict, Any
 def iot_devices(iot: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": str(iot["_id"]),                               # required
-        "_id": str(iot["_id"]),                            # required
+        "_id": str(iot["_id"]),                        # required   
         "vehicle_id": str(iot["vehicle_id"]),                # required
         "company_name": iot.get("company_name"),         # optional string
         "is_active": iot["is_active"],                 # required enum
