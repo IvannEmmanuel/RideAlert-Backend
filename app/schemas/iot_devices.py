@@ -11,14 +11,14 @@ class IoTDeviceBase(BaseModel):
     vehicle_id: Optional[str] = None
     is_active: IoTDeviceStatus
     device_name: Optional[str] = None
-    fleet_id: str
+    device_model: Optional[str] = None
 
 class IoTDeviceCreate(IoTDeviceBase):
     """Schema for creating a new IoT device entry."""
     pass
 
 class IoTDevicePublic(IoTDeviceBase):
-    fleet_id: str
     id: str
+    device_model: Optional[str] = None
     last_update: Optional[datetime] = None
     createdAt: Optional[datetime] = None

@@ -5,14 +5,14 @@ from app.database import get_iot_devices_collection, vehicle_collection
 from bson import ObjectId
 from datetime import datetime
 from typing import List, Dict, Optional
-from app.dependencies.roles import admin_required
+from app.dependencies.roles import super_admin_required
 
 router = APIRouter(prefix="/iot_devices", tags=["IoT Devices"])
 
 @router.post("/", response_model=IoTDevicePublic)
 async def create_iot_device(
     payload: Optional[IoTDeviceCreate] = Body(None),
-    current_user: Dict = Depends(admin_required)
+    current_user: Dict = Depends(super_admin_required)
 ):
     doc = {
         "vehicle_id": payload.vehicle_id if payload else None,
