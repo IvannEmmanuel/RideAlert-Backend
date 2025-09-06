@@ -10,8 +10,15 @@ from app.utils.pasword_hashing import hash_password, verify_password
 from app.utils.auth_token import create_access_token
 import asyncio
 from fastapi.encoders import jsonable_encoder
+from app.schemas.fleets import SubscriptionPlan
 
 router = APIRouter(prefix="/fleets", tags=["Fleets"])
+
+plan_prices = {
+    SubscriptionPlan.basic: 250,
+    SubscriptionPlan.premium: 1000,
+    SubscriptionPlan.enterprise: 2500
+}
 
 @router.post("/", response_model=FleetPublic)
 async def create_fleet(
@@ -50,7 +57,8 @@ async def create_fleet(
         "created_at": now,
         "last_updated": now,
         "role": "unverified",
-        "is_active": False
+        "is_active": True,
+        "plan_price": plan_prices[doc["subscription_plan"]]
     })
 
     result = collection.insert_one(doc)

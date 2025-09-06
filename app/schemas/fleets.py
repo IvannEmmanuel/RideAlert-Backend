@@ -11,6 +11,7 @@ class FleetRole(str, Enum):
 class SubscriptionPlan(str, Enum):
     basic = "Basic"
     premium = "Premium"
+    enterprise = "Enterprise"
 
 class ContactInfo(BaseModel):
     email: str
@@ -28,6 +29,15 @@ class FleetBase(BaseModel):
     last_updated: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
+    @property
+    def plan_price(self) -> int:
+        """Returns the price for the subscription plan in PHP."""
+        prices = {
+            SubscriptionPlan.basic: 250,
+            SubscriptionPlan.premium: 1000,
+            SubscriptionPlan.enterprise: 2500
+        }
+        return prices[self.subscription_plan]
 class FleetCreate(FleetBase):
     password: str  # Accept plain password for creation
 
