@@ -63,28 +63,39 @@ async def create_vehicle_for_fleet(
     vehicle: VehicleBase,
     current_user: dict = Depends(super_and_admin_required)
 ):
-    # Ensure fleet_id from path is used
+    # Ensure plate is unique
     if vehicle_collection.find_one({"plate": vehicle.plate}):
         raise HTTPException(
             status_code=400,
             detail="This vehicle license plate already exists"
         )
 
+    # Convert to dict and enforce fleet_id
     vehicle_dict = vehicle.dict()
-    vehicle_dict["fleet_id"] = fleet_id  # override whatever comes from body
+    vehicle_dict["fleet_id"] = fleet_id
 
+    # Insert into DB
     result = vehicle_collection.insert_one(vehicle_dict)
     created_vehicle = vehicle_collection.find_one({"_id": result.inserted_id})
     if not created_vehicle:
         raise HTTPException(status_code=500, detail="Failed to create vehicle")
 
-    # Broadcast vehicle count and vehicle lists
+    # Broadcast updated vehicle count and list
     total_vehicles = vehicle_collection.count_documents({})
     await vehicle_count_manager.broadcast({"total_vehicles": total_vehicles})
     await broadcast_vehicle_list(fleet_id)
-    if created_vehicle.get("status") == "available" and created_vehicle.get("location", {}).get("latitude") and created_vehicle.get("location", {}).get("longitude"):
+
+    # Safe location check before broadcasting available list
+    location = created_vehicle.get("location")
+    if (
+        created_vehicle.get("status") == "available"
+        and isinstance(location, dict)
+        and location.get("latitude") is not None
+        and location.get("longitude") is not None
+    ):
         await broadcast_available_vehicle_list(fleet_id)
 
+    # Return serialized vehicle
     created_vehicle_dict = serialize_vehicle(created_vehicle)
     return VehicleInDB(**created_vehicle_dict)
 

@@ -11,7 +11,7 @@ from app.utils.auth_token import create_access_token
 import asyncio
 from fastapi.encoders import jsonable_encoder
 from app.schemas.fleets import SubscriptionPlan
-from app.utils.ws_manager import fleet_all_manager, fleet_count_manager
+from app.utils.ws_manager import fleet_all_manager, fleet_count_manager, fleet_details_manager
 
 router = APIRouter(prefix="/fleets", tags=["Fleets"])
 
@@ -46,6 +46,18 @@ async def broadcast_fleet_list():
         } for f in fleet_docs
     ]
     await fleet_all_manager.broadcast({"fleets": fleets_list})
+
+async def broadcast_fleet_details(fleet_id: str):
+    """Broadcast the details of a specific fleet to connected /fleet_id/ws clients."""
+    collection = get_fleets_collection
+    fleet_doc = collection.find_one({"_id": ObjectId(fleet_id)})
+    if fleet_doc:
+        fleet_data = fleets(fleet_doc)
+        serialized_data = {
+            key: serialize_datetime(value) if isinstance(value, (datetime, ObjectId)) else value
+            for key, value in fleet_data.items()
+        }
+        await fleet_details_manager.broadcast(serialized_data, fleet_id)
 
 @router.post("/", response_model=FleetPublic)
 async def create_fleet(payload: Optional[FleetCreate] = Body(None)):
@@ -171,41 +183,43 @@ async def websocket_fleet_details(websocket: WebSocket, fleet_id: str):
     """
     WebSocket endpoint to stream specific fleet details in real-time.
     """
-    await websocket.accept()
-    collection = get_fleets_collection
-
     try:
-        # Validate ObjectId format
         if not ObjectId.is_valid(fleet_id):
             await websocket.send_json({"error": "Invalid fleet ID format"})
             await websocket.close()
             return
 
-        while True:
-            fleet_doc = collection.find_one({"_id": ObjectId(fleet_id)})
-            
-            if not fleet_doc:
-                await websocket.send_json({"error": "Fleet not found"})
-                await websocket.close()
-                break
-            
-            # Convert the fleet document using your existing fleets function
-            fleet_data = fleets(fleet_doc)
-            
-            # Serialize datetime and ObjectId fields
-            serialized_data = {
-                key: serialize_datetime(value) if isinstance(value, (datetime, ObjectId)) else value
-                for key, value in fleet_data.items()
-            }
-            
-            await websocket.send_json(serialized_data)
-            await asyncio.sleep(5)  # Send updates every 5 seconds
-            
-    except WebSocketDisconnect:
-        print(f"Client disconnected from fleet {fleet_id} details")
+        collection = get_fleets_collection
+        fleet_doc = collection.find_one({"_id": ObjectId(fleet_id)})
+        if not fleet_doc:
+            await websocket.send_json({"error": "Fleet not found"})
+            await websocket.close()
+            return
+
+        await fleet_details_manager.connect(websocket, fleet_id)
+
+        # Send initial fleet details
+        fleet_data = fleets(fleet_doc)
+        serialized_data = {
+            key: serialize_datetime(value) if isinstance(value, (datetime, ObjectId)) else value
+            for key, value in fleet_data.items()
+        }
+        await websocket.send_json(serialized_data)
+
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            fleet_details_manager.disconnect(websocket, fleet_id)
+            print(f"Client disconnected from fleet {fleet_id} details")
+        except Exception as e:
+            fleet_details_manager.disconnect(websocket, fleet_id)
+            print(f"Error in fleet details WebSocket for fleet {fleet_id}: {e}")
+            await websocket.send_json({"error": str(e)})
+            await websocket.close()
+
     except Exception as e:
-        print(f"Error in fleet details WebSocket: {e}")
-        await websocket.send_json({"error": str(e)})
+        print(f"Unexpected error in fleet details WebSocket for fleet {fleet_id}: {e}")
         await websocket.close()
 
 @router.websocket("/ws/count-fleets")
