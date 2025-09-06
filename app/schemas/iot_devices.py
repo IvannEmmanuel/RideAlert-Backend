@@ -15,6 +15,8 @@ class IoTDeviceBase(BaseModel):
     is_active: IoTDeviceStatus
     device_name: Optional[str] = None
     device_model: Optional[IoTDeviceModel] = None
+    company_name: Optional[str] = None
+    notes: Optional[str] = None
 
 class IoTDeviceCreate(IoTDeviceBase):
     """Schema for creating a new IoT device entry."""
@@ -25,3 +27,5 @@ class IoTDevicePublic(IoTDeviceBase):
     device_model: Optional[str] = None
     last_update: Optional[datetime] = None
     createdAt: Optional[datetime] = None
+    company_name: Optional[str] = None
+    notes: Optional[str] = None
