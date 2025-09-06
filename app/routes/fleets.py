@@ -300,3 +300,69 @@ async def delete_fleet(fleet_id: str):
     await broadcast_fleet_list()
 
     return {"message": "Fleet deleted"}
+
+@router.patch("/{fleet_id}/approve", dependencies=[Depends(super_admin_required)])
+async def approve_fleet(fleet_id: str):
+    """
+    Approve a fleet registration by setting its role to 'admin' and updating timestamps.
+    Only accessible by superadmin.
+    """
+    collection = get_fleets_collection
+
+    if not ObjectId.is_valid(fleet_id):
+        raise HTTPException(status_code=400, detail="Invalid fleet ID format")
+
+    now = datetime.utcnow()
+    result = collection.update_one(
+        {"_id": ObjectId(fleet_id)},
+        {"$set": {"role": "admin", "last_updated": now}}
+    )
+
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Fleet not found")
+
+    updated_fleet = collection.find_one({"_id": ObjectId(fleet_id)})
+
+    # Broadcast updated fleet list and count
+    total_fleets = collection.count_documents({"role": {"$ne": "superadmin"}})
+    await fleet_count_manager.broadcast({"total_fleets": total_fleets})
+    await broadcast_fleet_list()
+    await broadcast_fleet_details(fleet_id)
+
+    return {
+        "message": "Fleet approved successfully",
+        "fleet": fleets(updated_fleet)
+    }
+
+@router.patch("/{fleet_id}/reject", dependencies=[Depends(super_admin_required)])
+async def reject_fleet(fleet_id: str):
+    """
+    Reject a fleet registration by setting its role to 'rejected' and updating timestamps.
+    Only accessible by superadmin.
+    """
+    collection = get_fleets_collection
+
+    if not ObjectId.is_valid(fleet_id):
+        raise HTTPException(status_code=400, detail="Invalid fleet ID format")
+
+    now = datetime.utcnow()
+    result = collection.update_one(
+        {"_id": ObjectId(fleet_id)},
+        {"$set": {"role": "rejected", "last_updated": now}}
+    )
+
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Fleet not found")
+
+    updated_fleet = collection.find_one({"_id": ObjectId(fleet_id)})
+
+    # Broadcast updated fleet list and count
+    total_fleets = collection.count_documents({"role": {"$ne": "superadmin"}})
+    await fleet_count_manager.broadcast({"total_fleets": total_fleets})
+    await broadcast_fleet_list()
+    await broadcast_fleet_details(fleet_id)
+
+    return {
+        "message": "Fleet rejected successfully",
+        "fleet": fleets(updated_fleet)
+    }
