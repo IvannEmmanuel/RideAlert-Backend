@@ -11,6 +11,7 @@ from app.utils.auth_token import create_access_token
 import asyncio
 from fastapi.encoders import jsonable_encoder
 from app.schemas.fleets import SubscriptionPlan
+from app.utils.ws_manager import fleet_all_manager, fleet_count_manager
 
 router = APIRouter(prefix="/fleets", tags=["Fleets"])
 
@@ -26,38 +27,55 @@ max_vehicles_limits = {
     SubscriptionPlan.enterprise: 100
 }
 
+def serialize_datetime(obj):
+    """Convert datetime and ObjectId objects to strings."""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    elif isinstance(obj, ObjectId):
+        return str(obj)
+    return obj
+
+async def broadcast_fleet_list():
+    """Helper function to broadcast the full fleet list to all connected /ws/all clients."""
+    collection = get_fleets_collection
+    fleet_docs = collection.find({"role": {"$ne": "superadmin"}})
+    fleets_list = [
+        {
+            key: serialize_datetime(value) if isinstance(value, (datetime, ObjectId)) else value
+            for key, value in fleets(f).items()
+        } for f in fleet_docs
+    ]
+    await fleet_all_manager.broadcast({"fleets": fleets_list})
+
 @router.post("/", response_model=FleetPublic)
-async def create_fleet(
-    payload: Optional[FleetCreate] = Body(None)
-):
+async def create_fleet(payload: Optional[FleetCreate] = Body(None)):
     """
-    Create a new fleet.
+    Create a new fleet and broadcast fleet count and updated fleet list.
     """
     collection = get_fleets_collection
 
     if not payload:
         raise HTTPException(status_code=400, detail="Fleet data is required")
 
-    # Check if company_code already exists
+    # company_code must be unique
     if collection.find_one({"company_code": payload.company_code}):
         raise HTTPException(status_code=400, detail="company_code already exists")
 
-    # Extract email from first contact_info entry
-    if payload.contact_info and len(payload.contact_info) > 0:
-        email = payload.contact_info[0].email
-        if collection.find_one({"contact_info.email": email}):
-            raise HTTPException(status_code=400, detail="email already exists")
-    else:
+    # at least one contact_info required
+    if not payload.contact_info or len(payload.contact_info) == 0:
         raise HTTPException(status_code=400, detail="At least one contact_info entry is required")
 
-    # Convert payload to dict
+    email = payload.contact_info[0].email
+    if collection.find_one({"contact_info.email": email}):
+        raise HTTPException(status_code=400, detail="email already exists")
+
+    # convert payload → dict
     doc = payload.dict()
 
-    # Hash password
+    # hash password
     if "password" in doc and doc["password"]:
         doc["password"] = hash_password(doc["password"])
 
-    # Add metadata
     now = datetime.utcnow()
     doc.update({
         "created_at": now,
@@ -70,6 +88,11 @@ async def create_fleet(
 
     result = collection.insert_one(doc)
     created = collection.find_one({"_id": result.inserted_id})
+
+    # 🚀 Broadcast fleet count and fleet list after create
+    total_fleets = collection.count_documents({"role": {"$ne": "superadmin"}})
+    await fleet_count_manager.broadcast({"total_fleets": total_fleets})
+    await broadcast_fleet_list()
 
     return fleets(created)
 
@@ -116,38 +139,32 @@ async def login_fleet(email: str = Body(...), password: str = Body(...)):
         "fleet": fleet_data
     }
 
-#get all the companies
 @router.websocket("/ws/all")
 async def websocket_all_fleets(websocket: WebSocket):
     """
     WebSocket endpoint to stream all fleets in real-time.
     Excludes fleets with role 'superadmin'.
     """
-    await websocket.accept()
+    await fleet_all_manager.connect(websocket)
     collection = get_fleets_collection
 
-    def serialize_datetime(obj):
-        """Convert datetime and ObjectId objects to strings."""
-        if isinstance(obj, datetime):
-            return obj.isoformat()
-        elif isinstance(obj, ObjectId):
-            return str(obj)
-        return obj
-
     try:
+        # Send initial fleet list
+        fleet_docs = collection.find({"role": {"$ne": "superadmin"}})
+        fleets_list = [
+            {
+                key: serialize_datetime(value) if isinstance(value, (datetime, ObjectId)) else value
+                for key, value in fleets(f).items()
+            } for f in fleet_docs
+        ]
+        await websocket.send_json({"fleets": fleets_list})
+
+        # Keep connection alive
         while True:
-            # Filter out documents where role is "superadmin"
-            fleet_docs = collection.find({"role": {"$ne": "superadmin"}})
-            fleets_list = [
-                {
-                    key: serialize_datetime(value) if isinstance(value, (datetime, ObjectId)) else value
-                    for key, value in fleets(f).items()
-                } for f in fleet_docs
-            ]  # Convert datetime and ObjectId fields to strings
-            await websocket.send_json({"fleets": fleets_list})  # Ensure {fleets: [...]} format
-            await asyncio.sleep(5)  # Send updates every 5 seconds
+            await websocket.receive_text()
     except WebSocketDisconnect:
-        print("Client disconnected")
+        fleet_all_manager.disconnect(websocket)
+        print("Client disconnected from /ws/all")
 
 @router.websocket("/{fleet_id}/ws")
 async def websocket_fleet_details(websocket: WebSocket, fleet_id: str):
@@ -156,14 +173,6 @@ async def websocket_fleet_details(websocket: WebSocket, fleet_id: str):
     """
     await websocket.accept()
     collection = get_fleets_collection
-
-    def serialize_datetime(obj):
-        """Convert datetime and ObjectId objects to strings."""
-        if isinstance(obj, datetime):
-            return obj.isoformat()
-        elif isinstance(obj, ObjectId):
-            return str(obj)
-        return obj
 
     try:
         # Validate ObjectId format
@@ -199,21 +208,21 @@ async def websocket_fleet_details(websocket: WebSocket, fleet_id: str):
         await websocket.send_json({"error": str(e)})
         await websocket.close()
 
-#get total number of companies
 @router.websocket("/ws/count-fleets")
 async def websocket_count_fleets(websocket: WebSocket):
-    await websocket.accept()
+    await fleet_count_manager.connect(websocket)
     collection = get_fleets_collection
+
+    # Send initial count right after connect
+    total_fleets = collection.count_documents({"role": {"$ne": "superadmin"}})
+    await websocket.send_json({"total_fleets": total_fleets})
 
     try:
         while True:
-            # Count all fleets except those with role "superadmin"
-            total_fleets = collection.count_documents({"role": {"$ne": "superadmin"}})
-            await websocket.send_json({"total_fleets": total_fleets})
-            await asyncio.sleep(5)  # Adjust interval as needed
-    except WebSocketDisconnect:
-        print("Client disconnected")
-
+            # keep connection alive
+            await websocket.receive_text()
+    except Exception:
+        fleet_count_manager.disconnect(websocket)
 
 @router.get("/{fleet_id}", response_model=FleetPublic)
 def get_fleet(fleet_id: str):
@@ -226,11 +235,10 @@ def get_fleet(fleet_id: str):
         raise HTTPException(status_code=404, detail="Fleet not found")
     return fleets(fleet_doc)
 
-
 @router.patch("/{fleet_id}", response_model=FleetPublic)
-def update_fleet(fleet_id: str, payload: dict = Body(...)):
+async def update_fleet(fleet_id: str, payload: dict = Body(...)):
     """
-    Update fields of a fleet (e.g., subscription_plan, is_active).
+    Update a fleet and broadcast fleet count and updated fleet list.
     """
     collection = get_fleets_collection
 
@@ -249,13 +257,32 @@ def update_fleet(fleet_id: str, payload: dict = Body(...)):
 
     update_fields["last_updated"] = datetime.utcnow()
 
-    result = collection.update_one(
-        {"_id": ObjectId(fleet_id)},
-        {"$set": update_fields}
-    )
-
-    if result.modified_count == 0:
-        raise HTTPException(status_code=404, detail="Fleet not found or not updated")
+    result = collection.update_one({"_id": ObjectId(fleet_id)}, {"$set": update_fields})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Fleet not found")
 
     updated = collection.find_one({"_id": ObjectId(fleet_id)})
+
+    # 🚀 Broadcast fleet count and fleet list
+    total_fleets = collection.count_documents({"role": {"$ne": "superadmin"}})
+    await fleet_count_manager.broadcast({"total_fleets": total_fleets})
+    await broadcast_fleet_list()
+
     return fleets(updated)
+
+@router.delete("/{fleet_id}")
+async def delete_fleet(fleet_id: str):
+    """
+    Delete a fleet and broadcast fleet count and updated fleet list.
+    """
+    collection = get_fleets_collection
+    result = collection.delete_one({"_id": ObjectId(fleet_id)})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Fleet not found")
+
+    # 🚀 Broadcast fleet count and fleet list
+    total_fleets = collection.count_documents({"role": {"$ne": "superadmin"}})
+    await fleet_count_manager.broadcast({"total_fleets": total_fleets})
+    await broadcast_fleet_list()
+
+    return {"message": "Fleet deleted"}

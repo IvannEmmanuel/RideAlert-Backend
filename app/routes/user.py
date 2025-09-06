@@ -7,13 +7,14 @@ from app.utils.pasword_hashing import hash_password
 from app.utils.pasword_hashing import verify_password
 from app.utils.auth_token import create_access_token
 from fastapi.responses import JSONResponse
-from app.dependencies.roles import admin_required, user_required, user_or_admin_required
+from app.dependencies.roles import admin_required, user_required, user_or_admin_required, super_admin_required
+from app.utils.ws_manager import user_count_manager
 import asyncio
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
 @router.post("/register", response_model=UserInDB)
-def create_user(user: UserCreate):
+async def create_user(user: UserCreate):
     if user_collection.find_one({"email": user.email}):
         raise HTTPException(status_code=400, detail="Email already registered")
 
@@ -23,6 +24,11 @@ def create_user(user: UserCreate):
 
     result = user_collection.insert_one(user_dict)
     created_user = user_collection.find_one({"_id": result.inserted_id})
+
+    # 🚀 Broadcast user count after create
+    total_users = user_collection.count_documents({})
+    await user_count_manager.broadcast({"total_users": total_users})
+
     return user_helper(created_user)
 
 @router.get("/{user_id}", response_model=UserInDB)
@@ -63,7 +69,7 @@ def login_user(login_data: UserLogin):
     })
 
 @router.post("/location")
-def update_location(
+async def update_location(
     location: Location,
     current_user: dict = Depends(user_or_admin_required)
 ):
@@ -81,15 +87,14 @@ def update_location(
 
     raise HTTPException(status_code=404, detail="User not found")
 
-
 @router.post("/fcm-token")
 async def save_fcm_token(
     user_id: str = Body(...),
     fcm_token: str = Body(...)
 ):
     result = user_collection.update_one(
-    {"_id": ObjectId(user_id)},
-    {"$set": {"fcm_token": fcm_token}}
+        {"_id": ObjectId(user_id)},
+        {"$set": {"fcm_token": fcm_token}}
     )
     if result.matched_count == 1:
         if result.modified_count == 1:
@@ -108,14 +113,34 @@ async def clear_fcm_token(user_id: str):
         return {"message": "FCM token cleared"}
     raise HTTPException(status_code=404, detail="User not found")
 
+@router.delete("/{user_id}")
+async def delete_user(user_id: str, current_user: dict = Depends(super_admin_required)):
+    """
+    Delete a user and broadcast user count.
+    """
+    result = user_collection.delete_one({"_id": ObjectId(user_id)})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # 🚀 Broadcast user count after delete
+    total_users = user_collection.count_documents({})
+    await user_count_manager.broadcast({"total_users": total_users})
+
+    return {"message": "User deleted"}
+
 @router.websocket("/ws/count-users")
 async def websocket_count_users(websocket: WebSocket):
-    await websocket.accept()
+    await user_count_manager.connect(websocket)
     collection = user_collection
+
+    # Send initial count right after connect
+    total_users = collection.count_documents({})
+    await websocket.send_json({"total_users": total_users})
 
     try:
         while True:
-            await websocket.send_json({"total_users": collection.count_documents({})})
-            await asyncio.sleep(5)  # Send updates every 5 seconds
+            # Keep connection alive
+            await websocket.receive_text()
     except WebSocketDisconnect:
-        print("Client disconnected")
+        user_count_manager.disconnect(websocket)
+        print("Client disconnected from /ws/count-users")
