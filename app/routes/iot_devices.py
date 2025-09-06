@@ -6,6 +6,7 @@ from bson import ObjectId
 from datetime import datetime
 from typing import List, Dict, Optional
 from app.dependencies.roles import super_admin_required
+from app.schemas.iot_devices import IoTDeviceModel
 
 router = APIRouter(prefix="/iot_devices", tags=["IoT Devices"])
 
@@ -18,8 +19,9 @@ async def create_iot_device(
         "vehicle_id": payload.vehicle_id if payload else None,
         "is_active": payload.is_active if payload else None,
         "device_name": payload.device_name if payload else None,
+        "device_model": payload.device_model,
         "createdAt": datetime.utcnow(),
-        "last_update": None
+        "last_update": datetime.utcnow()
     }
 
     if doc["vehicle_id"]:
@@ -31,6 +33,10 @@ async def create_iot_device(
     created = get_iot_devices_collection.find_one({"_id": result.inserted_id})
 
     return iot_devices(created)  # ✅ matches IoTDevicePublic
+
+@router.get("/device-models", response_model=List[str])
+async def get_device_models():
+    return [model.value for model in IoTDeviceModel]
 
 @router.get("/all", response_model=List[IoTDevicePublic])
 def list_iot_devices():

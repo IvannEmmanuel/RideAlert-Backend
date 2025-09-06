@@ -7,11 +7,14 @@ class IoTDeviceStatus(str, Enum):
     active = "active"
     inactive = "inactive"
 
+class IoTDeviceModel(str, Enum):
+    test_prod = "Test For Production"
+
 class IoTDeviceBase(BaseModel):
     vehicle_id: Optional[str] = None
     is_active: IoTDeviceStatus
     device_name: Optional[str] = None
-    device_model: Optional[str] = None
+    device_model: Optional[IoTDeviceModel] = None
 
 class IoTDeviceCreate(IoTDeviceBase):
     """Schema for creating a new IoT device entry."""
