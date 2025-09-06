@@ -10,5 +10,6 @@ def vehicle_class(vehicle) -> dict:
         "driverName": vehicle["driverName"],
         "plate": vehicle["plate"],  # match your Pydantic model, not plate_number of the vehicle
         "device_id": vehicle["device_id"], #foreign key
-        "fleet_id": vehicle["fleet_id"]
+        "fleet_id": vehicle["fleet_id"],
+        "bound_for": vehicle("bound_for")
     }

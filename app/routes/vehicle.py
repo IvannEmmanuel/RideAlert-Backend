@@ -41,7 +41,8 @@ def create_vehicle_for_fleet(
         "route": created_vehicle["route"],
         "driverName": created_vehicle["driverName"],
         "plate": created_vehicle["plate"],
-        "device_id": created_vehicle.get("device_id")
+        "device_id": created_vehicle.get("device_id"),
+        "bound_for": created_vehicle.get("bound_for")
     }
 
     return VehicleInDB(**created_vehicle_dict)

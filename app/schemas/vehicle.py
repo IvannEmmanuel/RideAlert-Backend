@@ -27,6 +27,7 @@ class VehicleBase(BaseModel):
     driverName: str
     plate: str
     device_id: Optional[str] = None
+    bound_for: Optional[str] = None
 
 class VehicleInDB(VehicleBase):
     id: str
@@ -41,3 +42,4 @@ class VehicleTrackResponse(BaseModel):
     plate: str
     device_id: str
     fleet_id: str
+    bound_for: str
