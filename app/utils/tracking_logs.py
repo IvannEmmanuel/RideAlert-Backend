@@ -3,7 +3,7 @@ from bson import ObjectId
 import time
 
 
-def insert_gps_log(db, vehicle_id: str, device_id: str, fleet_id: str, ml_request_data: dict, corrected_coordinates: dict):
+def insert_gps_log(db, device_id: str, fleet_id: str, ml_request_data: dict, corrected_coordinates: dict):
     """
     Insert ML prediction log into MongoDB Atlas with complete sensor data structure
 
@@ -28,8 +28,8 @@ def insert_gps_log(db, vehicle_id: str, device_id: str, fleet_id: str, ml_reques
     MongoDB Document Structure Created:
     {
         "_id": ObjectId("..."),
-        "vehicle_id": "vehicle_001", 
         "device_id": "iot_device_001",
+        "fleet_id": "fleet_001",
         "gps_data": {
             "raw_coordinates": {
                 "latitude": 8.585581,    # Original raw GPS from IoT device
@@ -74,7 +74,6 @@ def insert_gps_log(db, vehicle_id: str, device_id: str, fleet_id: str, ml_reques
     # Build the enhanced log entry with both raw and final corrected coordinates
     log_entry = {
         "_id": ObjectId(),  # MongoDB will auto-generate if not provided
-        "vehicle_id": vehicle_id,
         "device_id": device_id,
         "fleet_id": fleet_id,
         "gps_data": {
@@ -108,6 +107,6 @@ def insert_gps_log(db, vehicle_id: str, device_id: str, fleet_id: str, ml_reques
     result = db["tracking_logs"].insert_one(log_entry)
 
     print(
-        f"📝 Enhanced tracking log inserted: Vehicle {vehicle_id}, Device {device_id}, Raw: ({raw_latitude:.6f}, {raw_longitude:.6f}), Final: ({corrected_coordinates['latitude']:.6f}, {corrected_coordinates['longitude']:.6f})")
+        f"📝 Enhanced tracking log inserted: Fleet {fleet_id}, Device {device_id}, Raw: ({raw_latitude:.6f}, {raw_longitude:.6f}), Final: ({corrected_coordinates['latitude']:.6f}, {corrected_coordinates['longitude']:.6f})")
 
     return result.inserted_id  # Return the inserted document ID
