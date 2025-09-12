@@ -841,14 +841,17 @@ FIREBASE_SERVICE_ACCOUNT_KEY=...       # Notification service
 ---
 
 ## SIM800L HTTP Bridge (Nginx Proxy)
+
 Because the SIM800L cannot negotiate TLS 1.2+, deploy a lightweight Nginx proxy that accepts plain HTTP and forwards to your secured FastAPI deployment.
 
 ### Files Added
-- `Dockerfile.nginx-proxy` – builds a tiny Nginx image
-- `nginx/nginx.conf.template` – dynamic template with upstream + optional device token
-- `nginx/entrypoint.sh` – renders template via env vars
+
+-   `Dockerfile.nginx-proxy` – builds a tiny Nginx image
+-   `nginx/nginx.conf.template` – dynamic template with upstream + optional device token
+-   `nginx/entrypoint.sh` – renders template via env vars
 
 ### Run Locally (Docker Compose style example)
+
 ```
 version: '3.9'
 services:
@@ -871,7 +874,9 @@ services:
     depends_on:
       - api
 ```
+
 SIM800L sends:
+
 ```
 GET /predict HTTP/1.0\r\n
 Host: <bridge-ip>\r\n
@@ -879,15 +884,43 @@ X-Device-Token: MY_SHARED_TOKEN\r\n\r\n
 ```
 
 ### Environment Variables
-| Name | Purpose | Default |
-|------|---------|---------|
-| `UPSTREAM_HOST` | FastAPI container/host | app |
-| `UPSTREAM_PORT` | FastAPI port | 8000 |
-| `DEVICE_TOKEN` | Shared secret for simple allowlist (`disabled` to bypass) | disabled |
+
+| Name            | Purpose                                                   | Default  |
+| --------------- | --------------------------------------------------------- | -------- |
+| `UPSTREAM_HOST` | FastAPI container/host                                    | app      |
+| `UPSTREAM_PORT` | FastAPI port                                              | 8000     |
+| `DEVICE_TOKEN`  | Shared secret for simple allowlist (`disabled` to bypass) | disabled |
 
 ### Security Notes
-- Add firewall rules / IP allowlist where possible.
-- Rotate `DEVICE_TOKEN` periodically.
-- Do NOT expose this proxy without at least one access control (token, VPN, or IP range).
+
+-   Add firewall rules / IP allowlist where possible.
+-   Rotate `DEVICE_TOKEN` periodically.
+-   Do NOT expose this proxy without at least one access control (token, VPN, or IP range).
+
+---
+
+### Nginx Integration (Local / VPS)
+
+You can run the FastAPI app + an HTTP bridge (for legacy SIM800L) using docker-compose:
+
+```
+docker compose up --build
+```
+
+Services:
+- `ridealert-backend`: FastAPI + ML loader (port 8000 internal / mapped 8000)
+- `nginx-bridge`: Plain HTTP listener (port 80) forwarding to backend; adds optional token filter
+
+Send request (module or curl):
+```
+curl -H "X-Device-Token: ${DEVICE_TOKEN}" http://localhost/predict/status
+```
+
+Environment variables in `.env` (see `.env.example`):
+- `DEVICE_TOKEN` – shared secret header; set to strong random
+
+Production reverse proxy sample: `nginx/app_reverse_proxy.conf` (includes WebSocket handling for routes under `/ws/`).
+
+For public deployment, terminate HTTPS in front (e.g., cloud load balancer or certbot-managed Nginx) and keep the bridge internal only.
 
 ---

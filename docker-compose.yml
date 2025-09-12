@@ -19,3 +19,17 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+
+  nginx-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile.nginx-proxy
+    depends_on:
+      - ridealert-backend
+    environment:
+      - UPSTREAM_HOST=ridealert-backend
+      - UPSTREAM_PORT=8000
+      - DEVICE_TOKEN=${DEVICE_TOKEN:-disabled}
+    ports:
+      - "80:80"
+    restart: unless-stopped
