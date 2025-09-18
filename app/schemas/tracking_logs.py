@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 
 
@@ -28,3 +28,4 @@ class TrackingLogPublic(BaseModel):
     fleet_id: str
     device_id: str
     gps_data: List[GPSData]
+    speed: str[Optional]
