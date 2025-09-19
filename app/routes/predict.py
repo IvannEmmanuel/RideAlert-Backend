@@ -32,6 +32,7 @@ class PredictionRequest(BaseModel):
     BiasX: float
     BiasY: float
     BiasZ: float
+    Speed: float
 
     # Option 1: Provide WLS ECEF coordinates directly (existing format)
     WlsPositionXEcefMeters: Optional[float] = None
