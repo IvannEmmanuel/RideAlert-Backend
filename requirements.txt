@@ -17,4 +17,5 @@ pyproj
 gdown
 requests
 tqdm
+python-multipart
 # Optional dependencies for additional features
