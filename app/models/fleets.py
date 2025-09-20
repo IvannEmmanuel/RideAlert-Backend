@@ -12,5 +12,6 @@ def fleets(admin: Dict[str, Any]) -> Dict[str, Any]:
         "created_at": admin.get("created_at"),
         "max_vehicles": admin["max_vehicles"],
         "role": admin["role"],
-        "plan_price": admin.get("plan_price")
+        "plan_price": admin.get("plan_price"),
+        "pdf_files": admin.get("pdf_files", []) #added
     }

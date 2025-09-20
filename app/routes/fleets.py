@@ -1,17 +1,21 @@
-from fastapi import APIRouter, HTTPException, Body, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Body, Depends, WebSocket, WebSocketDisconnect, Form, File, UploadFile #Form file uploadfile added
 from app.models.fleets import fleets
 from app.schemas.fleets import FleetCreate, FleetPublic
 from app.database import get_fleets_collection
-from bson import ObjectId
+from bson import ObjectId, Binary #binary added
 from datetime import datetime
 from typing import List, Dict, Optional
 from app.dependencies.roles import super_admin_required
 from app.utils.pasword_hashing import hash_password, verify_password
 from app.utils.auth_token import create_access_token
-import asyncio
 from fastapi.encoders import jsonable_encoder
 from app.schemas.fleets import SubscriptionPlan
 from app.utils.ws_manager import fleet_all_manager, fleet_count_manager, fleet_details_manager
+import json #added
+from pydantic import ValidationError #added
+import base64 #added
+from fastapi.responses import StreamingResponse  #added
+import io #added
 
 router = APIRouter(prefix="/fleets", tags=["Fleets"])
 
@@ -37,7 +41,7 @@ def serialize_datetime(obj):
 
 async def broadcast_fleet_list():
     """Helper function to broadcast the full fleet list to all connected /ws/all clients."""
-    collection = get_fleets_collection
+    collection = get_fleets_collection()
     fleet_docs = collection.find({"role": {"$ne": "superadmin"}})
     fleets_list = [
         {
@@ -49,7 +53,7 @@ async def broadcast_fleet_list():
 
 async def broadcast_fleet_details(fleet_id: str):
     """Broadcast the details of a specific fleet to connected /fleet_id/ws clients."""
-    collection = get_fleets_collection
+    collection = get_fleets_collection()
     fleet_doc = collection.find_one({"_id": ObjectId(fleet_id)})
     if fleet_doc:
         fleet_data = fleets(fleet_doc)
@@ -59,49 +63,104 @@ async def broadcast_fleet_details(fleet_id: str):
         }
         await fleet_details_manager.broadcast(serialized_data, fleet_id)
 
+# @router.post("/", response_model=FleetPublic)
+# async def create_fleet(payload: Optional[FleetCreate] = Body(None)):
+#     """
+#     Create a new fleet and broadcast fleet count and updated fleet list.
+#     """
+#     collection = get_fleets_collection
+
+#     if not payload:
+#         raise HTTPException(status_code=400, detail="Fleet data is required")
+
+#     # company_code must be unique
+#     if collection.find_one({"company_code": payload.company_code}):
+#         raise HTTPException(status_code=400, detail="company_code already exists")
+
+#     # at least one contact_info required
+#     if not payload.contact_info or len(payload.contact_info) == 0:
+#         raise HTTPException(status_code=400, detail="At least one contact_info entry is required")
+
+#     email = payload.contact_info[0].email
+#     if collection.find_one({"contact_info.email": email}):
+#         raise HTTPException(status_code=400, detail="email already exists")
+
+#     # convert payload → dict
+#     doc = payload.dict()
+
+#     # hash password
+#     if "password" in doc and doc["password"]:
+#         doc["password"] = hash_password(doc["password"])
+
+#     now = datetime.utcnow()
+#     doc.update({
+#         "created_at": now,
+#         "last_updated": now,
+#         "role": "unverified",
+#         "is_active": True,
+#         "plan_price": plan_prices[doc["subscription_plan"]],
+#         "max_vehicles": max_vehicles_limits[doc["subscription_plan"]]
+#     })
+
+#     result = collection.insert_one(doc)
+#     created = collection.find_one({"_id": result.inserted_id})
+
+#     # 🚀 Broadcast fleet count and fleet list after create
+#     total_fleets = collection.count_documents({"role": {"$ne": "superadmin"}})
+#     await fleet_count_manager.broadcast({"total_fleets": total_fleets})
+#     await broadcast_fleet_list()
+
+#     return fleets(created)
+
+#newly added create
 @router.post("/", response_model=FleetPublic)
-async def create_fleet(payload: Optional[FleetCreate] = Body(None)):
-    """
-    Create a new fleet and broadcast fleet count and updated fleet list.
-    """
+async def create_fleet(
+    data: str = Form(...),  # JSON string from frontend
+    business_documents: Optional[List[UploadFile]] = File(None)  # now optional
+):
     collection = get_fleets_collection
 
-    if not payload:
-        raise HTTPException(status_code=400, detail="Fleet data is required")
+    # Parse and validate JSON against FleetCreate
+    try:
+        payload_obj = FleetCreate(**json.loads(data))
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors())
 
-    # company_code must be unique
-    if collection.find_one({"company_code": payload.company_code}):
+    # Uniqueness checks
+    if collection.find_one({"company_code": payload_obj.company_code}):
         raise HTTPException(status_code=400, detail="company_code already exists")
-
-    # at least one contact_info required
-    if not payload.contact_info or len(payload.contact_info) == 0:
-        raise HTTPException(status_code=400, detail="At least one contact_info entry is required")
-
-    email = payload.contact_info[0].email
-    if collection.find_one({"contact_info.email": email}):
+    if collection.find_one({"contact_info.email": payload_obj.contact_info[0].email}):
         raise HTTPException(status_code=400, detail="email already exists")
 
-    # convert payload → dict
-    doc = payload.dict()
+    # Read uploaded PDFs into base64 strings
+    pdf_files = []
+    if business_documents:
+        for file in business_documents:
+            file_bytes = await file.read()
+            pdf_files.append({
+                "filename": file.filename,
+                "content": base64.b64encode(file_bytes).decode("utf-8")
+            })
 
-    # hash password
-    if "password" in doc and doc["password"]:
-        doc["password"] = hash_password(doc["password"])
-
+    # Prepare document for MongoDB
     now = datetime.utcnow()
+    doc = payload_obj.dict()
     doc.update({
         "created_at": now,
         "last_updated": now,
         "role": "unverified",
         "is_active": True,
-        "plan_price": plan_prices[doc["subscription_plan"]],
-        "max_vehicles": max_vehicles_limits[doc["subscription_plan"]]
+        "plan_price": payload_obj.plan_price,
+        "max_vehicles": payload_obj.max_vehicles,
+        "password": hash_password(payload_obj.password),
+        "pdf_files": pdf_files
     })
 
+    # Insert into DB
     result = collection.insert_one(doc)
     created = collection.find_one({"_id": result.inserted_id})
 
-    # 🚀 Broadcast fleet count and fleet list after create
+    # Broadcast updates
     total_fleets = collection.count_documents({"role": {"$ne": "superadmin"}})
     await fleet_count_manager.broadcast({"total_fleets": total_fleets})
     await broadcast_fleet_list()
@@ -366,3 +425,26 @@ async def reject_fleet(fleet_id: str):
         "message": "Fleet rejected successfully",
         "fleet": fleets(updated_fleet)
     }
+
+@router.get("/{fleet_id}/pdf/{filename}")
+async def get_fleet_pdf(fleet_id: str, filename: str):
+    collection = get_fleets_collection
+    fleet = collection.find_one({"_id": ObjectId(fleet_id)})
+    if not fleet:
+        raise HTTPException(status_code=404, detail="Fleet not found")
+
+    pdf_files = fleet.get("pdf_files", [])
+    file_entry = next((f for f in pdf_files if f["filename"] == filename), None)
+    if not file_entry:
+        raise HTTPException(status_code=404, detail="PDF not found")
+
+    # Decode base64 back to bytes
+    pdf_bytes = base64.b64decode(file_entry["content"])
+
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        }
+    )

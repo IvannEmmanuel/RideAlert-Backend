@@ -3,6 +3,11 @@ from datetime import datetime
 from typing import Optional, List
 from enum import Enum
 
+#added
+class PDFFile(BaseModel):
+    filename: str
+    content: Optional[str] = None
+
 class FleetRole(str, Enum):
     unverified = "unverified"
     admin = "admin"
@@ -47,6 +52,10 @@ class FleetBase(BaseModel):
             SubscriptionPlan.enterprise: 100
         }
         return limits[self.subscription_plan]
+    
+    #added
+    #pdf_file
+    pdf_files: Optional[List[PDFFile]] = None
 
 class FleetCreate(FleetBase):
     password: str  # Accept plain password for creation
