@@ -250,17 +250,23 @@ async def websocket_count_vehicles(websocket: WebSocket):
     await vehicle_count_manager.connect(websocket)
     collection = vehicle_collection
 
-    # Send initial count right after connect
-    total_vehicles = collection.count_documents({})
-    await websocket.send_json({"total_vehicles": total_vehicles})
-
     try:
+        # Try sending initial count
+        total_vehicles = collection.count_documents({})
+        await websocket.send_json({"total_vehicles": total_vehicles})
+
+        # Keep connection alive (listen for pings/messages)
         while True:
-            # Keep connection alive
             await websocket.receive_text()
+
     except WebSocketDisconnect:
         vehicle_count_manager.disconnect(websocket)
         print("Client disconnected from /ws/count-vehicles")
+
+    except Exception as e:
+        # Log other errors, but don’t try to send_json here
+        print(f"Unexpected error in /ws/count-vehicles: {e}")
+        vehicle_count_manager.disconnect(websocket)
 
 @router.websocket("/ws/vehicles/available/{fleet_id}")
 async def available_vehicles_ws(websocket: WebSocket, fleet_id: str):
