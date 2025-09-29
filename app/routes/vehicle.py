@@ -304,3 +304,27 @@ async def available_vehicles_ws(websocket: WebSocket, fleet_id: str):
     except Exception as e:
         vehicle_all_manager.disconnect(websocket, fleet_id)
         print(f"Error in available vehicles WebSocket for fleet {fleet_id}: {e}")
+
+#NEWLY ADDED
+@router.websocket("/ws/vehicles/all/{fleet_id}")
+async def websocket_all_vehicles(websocket: WebSocket, fleet_id: str):
+    """
+    WebSocket endpoint to stream all vehicles for a specific fleet in real-time.
+    """
+    await vehicle_all_manager.connect(websocket, fleet_id)
+    try:
+        # Send initial vehicle list
+        vehicles = [
+            serialize_vehicle(vehicle)
+            for vehicle in vehicle_collection.find({"fleet_id": fleet_id})
+        ]
+        await websocket.send_json({"vehicles": vehicles})
+
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        vehicle_all_manager.disconnect(websocket, fleet_id)
+        print(f"Client disconnected from vehicles/all/{fleet_id}")
+    except Exception as e:
+        vehicle_all_manager.disconnect(websocket, fleet_id)
+        print(f"Error in vehicles WebSocket for fleet {fleet_id}: {e}")
