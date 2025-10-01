@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from app.utils.background_loader import background_loader
 from app.utils.tracking_logs import insert_gps_log
 from app.database import db
@@ -32,7 +32,8 @@ class PredictionRequest(BaseModel):
     BiasX: float
     BiasY: float
     BiasZ: float
-    speed: float
+    # Accept IoT payload key 'speed' but expose field name 'Speed' to keep ML feature names consistent
+    Speed: float = Field(..., alias="speed")
 
     # Option 1: Provide WLS ECEF coordinates directly (existing format)
     WlsPositionXEcefMeters: Optional[float] = None
@@ -48,6 +49,10 @@ class PredictionRequest(BaseModel):
     # only used when ENABLE_GROUND_TRUTH_COMPARISON is True
     LatitudeDegrees_gt: Optional[float] = None
     LongitudeDegrees_gt: Optional[float] = None
+
+    class Config:
+        # Allow either field name ('Speed') or alias ('speed') in input payloads
+        allow_population_by_field_name = True
 
 
 def convert_latlon_to_ecef(latitude: float, longitude: float, altitude: float):
@@ -165,7 +170,7 @@ async def predict(request: PredictionRequest):
             wls_y = request.WlsPositionYEcefMeters
             wls_z = request.WlsPositionZEcefMeters
 
-        # Prepare input data with the ECEF coordinates
+        # Prepare input data with the ECEF coordinates; keep field names (e.g., 'Speed') for ML features
         input_data = request.dict()
 
         # Use the converted or provided ECEF coordinates
