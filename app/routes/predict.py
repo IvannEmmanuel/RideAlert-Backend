@@ -170,7 +170,8 @@ async def predict(request: PredictionRequest):
             wls_y = request.WlsPositionYEcefMeters
             wls_z = request.WlsPositionZEcefMeters
 
-        # Prepare input data with the ECEF coordinates; keep field names (e.g., 'Speed') for ML features
+        # Prepare input data with the ECEF coordinates; keep field names (e.g., 'Speed') for ML features.
+        # NOTE: Do NOT use by_alias=True here; ML artifacts expect 'Speed' and logging reads 'Speed'/'speed'.
         input_data = request.dict()
 
         # Use the converted or provided ECEF coordinates
@@ -266,7 +267,7 @@ async def predict(request: PredictionRequest):
                 "altitude": original_altitude  # Use original altitude, not corrected
             }
 
-            # Convert request to dict for logging
+            # Convert request to dict for logging (preserve field names like 'Speed')
             ml_request_data = request.dict()
 
             # Insert comprehensive tracking log for this SUCCESSFUL prediction

@@ -20,6 +20,7 @@ def insert_gps_log(db, device_id: str, fleet_id: str, ml_request_data: dict, cor
         "BiasX": 0.0,
         "BiasY": 0.0,
         "BiasZ": 0.0,
+        "Speed": 10.5,                    # Speed value (float). IoT may send as 'speed' (alias)
         "raw_latitude": 8.585581,
         "raw_longitude": 124.769386,
         "raw_altitude": 3.0
@@ -71,11 +72,24 @@ def insert_gps_log(db, device_id: str, fleet_id: str, ml_request_data: dict, cor
     raw_longitude = ml_request_data.get("raw_longitude")
     raw_altitude = ml_request_data.get("raw_altitude")
 
+    # Extract speed (support both 'Speed' and 'speed' keys)
+    speed_value = ml_request_data.get("Speed")
+    if speed_value is None:
+        speed_value = ml_request_data.get("speed")
+    # Try to normalize to float if possible
+    try:
+        if speed_value is not None:
+            speed_value = float(speed_value)
+    except (ValueError, TypeError):
+        # Leave as-is if it cannot be converted; optional field
+        pass
+
     # Build the enhanced log entry with both raw and final corrected coordinates
     log_entry = {
         "_id": ObjectId(),  # MongoDB will auto-generate if not provided
         "device_id": device_id,
         "fleet_id": fleet_id,
+        "speed": speed_value,  # Optional: top-level speed for easy querying/aggregation
         "gps_data": {
             "raw_coordinates": {
                 "latitude": raw_latitude,      # Original raw GPS reading from IoT device
