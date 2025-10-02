@@ -5,6 +5,7 @@ from app.models.user import user_helper
 from bson import ObjectId
 from app.utils.pasword_hashing import hash_password
 from app.utils.pasword_hashing import verify_password
+from app.utils.pasword_hashing import needs_update
 from app.utils.auth_token import create_access_token
 from fastapi.responses import JSONResponse
 from app.dependencies.roles import admin_required, user_required, user_or_admin_required, super_admin_required
@@ -12,6 +13,7 @@ from app.utils.ws_manager import user_count_manager
 import asyncio
 
 router = APIRouter(prefix="/users", tags=["Users"])
+
 
 @router.post("/register", response_model=UserInDB)
 async def create_user(user: UserCreate):
@@ -31,6 +33,7 @@ async def create_user(user: UserCreate):
 
     return user_helper(created_user)
 
+
 @router.get("/{user_id}", response_model=UserInDB)
 def get_user(user_id: str, current_user: dict = Depends(user_or_admin_required)):
     user = user_collection.find_one({"_id": ObjectId(user_id)})
@@ -38,12 +41,24 @@ def get_user(user_id: str, current_user: dict = Depends(user_or_admin_required))
         raise HTTPException(status_code=404, detail="User not found")
     return user_helper(user)
 
+
 @router.post("/login")
 def login_user(login_data: UserLogin):
     user = user_collection.find_one({"email": login_data.email})
 
     if not user or not verify_password(login_data.password, user["password"]):
-        raise HTTPException(status_code=401, detail="email or password is invalid")
+        raise HTTPException(
+            status_code=401, detail="email or password is invalid")
+
+    # Upgrade hash on-the-fly if needed
+    try:
+        if needs_update(user["password"]):
+            new_hash = hash_password(login_data.password)
+            user_collection.update_one({"_id": user["_id"]}, {
+                                       "$set": {"password": new_hash}})
+    except Exception:
+        # Non-fatal: continue login even if update fails
+        pass
 
     token_data = {
         "user_id": str(user["_id"]),
@@ -68,6 +83,7 @@ def login_user(login_data: UserLogin):
         }
     })
 
+
 @router.post("/location")
 async def update_location(
     location: Location,
@@ -75,7 +91,8 @@ async def update_location(
 ):
     user_id = current_user.get("user_id") or current_user.get("_id")
     if not user_id:
-        raise HTTPException(status_code=400, detail="User ID not found in token")
+        raise HTTPException(
+            status_code=400, detail="User ID not found in token")
 
     result = user_collection.update_one(
         {"_id": ObjectId(user_id)},
@@ -86,6 +103,7 @@ async def update_location(
         return {"message": "The location updated successfully"}
 
     raise HTTPException(status_code=404, detail="User not found")
+
 
 @router.post("/fcm-token")
 async def save_fcm_token(
@@ -103,6 +121,7 @@ async def save_fcm_token(
             return {"message": "FCM token already up-to-date"}
     raise HTTPException(status_code=404, detail="User not found")
 
+
 @router.delete("/fcm-token")
 async def clear_fcm_token(user_id: str):
     result = user_collection.update_one(
@@ -112,6 +131,7 @@ async def clear_fcm_token(user_id: str):
     if result.matched_count == 1:
         return {"message": "FCM token cleared"}
     raise HTTPException(status_code=404, detail="User not found")
+
 
 @router.delete("/{user_id}")
 async def delete_user(user_id: str, current_user: dict = Depends(super_admin_required)):
@@ -127,6 +147,7 @@ async def delete_user(user_id: str, current_user: dict = Depends(super_admin_req
     await user_count_manager.broadcast({"total_users": total_users})
 
     return {"message": "User deleted"}
+
 
 @router.websocket("/ws/count-users")
 async def websocket_count_users(websocket: WebSocket):
