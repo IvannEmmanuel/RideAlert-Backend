@@ -41,6 +41,7 @@ Thumbs.db
 
 # Dependency directories
 node_modules/  # If you use any frontend tools
+nginx/
 
 # Testing and coverage
 .coverage

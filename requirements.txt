@@ -9,7 +9,7 @@ python-jose
 passlib[bcrypt]
 firebase-admin
 # ML dependencies
-scikit-learn
+scikit-learn==1.6.1
 joblib
 numpy
 pandas

@@ -1,5 +1,8 @@
+from typing import Optional, Union
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
-from app.database import vehicle_collection, tracking_logs_collection
+from fastapi import Body
+from pydantic import BaseModel
+from app.database import vehicle_collection, tracking_logs_collection, user_collection, notification_logs_collection
 from bson import ObjectId
 from app.dependencies.roles import user_required, admin_required, user_or_admin_required, super_and_admin_required
 from app.schemas.vehicle import VehicleTrackResponse, Location, VehicleStatus, VehicleBase, VehicleInDB
@@ -7,8 +10,10 @@ from typing import List
 from datetime import datetime
 import asyncio
 from app.utils.ws_manager import vehicle_count_manager, vehicle_all_manager
+from app.utils.notifications import send_fcm_notification
 
 router = APIRouter(prefix="/vehicles", tags=["Vehicles"])
+
 
 def serialize_vehicle(vehicle):
     """Serialize a vehicle document, converting ObjectId to string."""
@@ -27,6 +32,7 @@ def serialize_vehicle(vehicle):
         "bound_for": vehicle.get("bound_for")
     }
 
+
 async def broadcast_vehicle_list(fleet_id: str):
     """Broadcast the list of vehicles for a specific fleet_id."""
     vehicles = [
@@ -34,6 +40,7 @@ async def broadcast_vehicle_list(fleet_id: str):
         for vehicle in vehicle_collection.find({"fleet_id": fleet_id})
     ]
     await vehicle_all_manager.broadcast({"vehicles": vehicles}, fleet_id)
+
 
 async def broadcast_available_vehicle_list(fleet_id: str):
     """Broadcast the list of available vehicles with valid locations for a specific fleet_id."""
@@ -56,6 +63,7 @@ async def broadcast_available_vehicle_list(fleet_id: str):
         for vehicle in vehicle_collection.find(query)
     ]
     await vehicle_all_manager.broadcast({"vehicles": vehicles}, fleet_id)
+
 
 @router.post("/create/{fleet_id}", response_model=VehicleInDB)
 async def create_vehicle_for_fleet(
@@ -151,13 +159,15 @@ async def create_vehicle_for_fleet(
 #     except Exception as e:
 #         raise HTTPException(status_code=500, detail=f"Error retrieving vehicles: {str(e)}")
 
+
 @router.get("/all/{fleet_id}", response_model=List[VehicleInDB])
 def get_all_vehicles(fleet_id: str, current_user: dict = Depends(user_or_admin_required)):
     try:
         vehicles_cursor = vehicle_collection.find({
             "$or": [
                 {"fleet_id": fleet_id},
-                {"fleet_id": ObjectId(fleet_id)} if ObjectId.is_valid(fleet_id) else {}
+                {"fleet_id": ObjectId(fleet_id)} if ObjectId.is_valid(
+                    fleet_id) else {}
             ]
         })
 
@@ -169,21 +179,25 @@ def get_all_vehicles(fleet_id: str, current_user: dict = Depends(user_or_admin_r
         return vehicles
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error retrieving vehicles: {str(e)}")
-    
+        raise HTTPException(
+            status_code=500, detail=f"Error retrieving vehicles: {str(e)}")
+
+
 @router.get("/track/{id}", response_model=VehicleTrackResponse)
 def track_vehicle(id: str, current_user: dict = Depends(user_or_admin_required)):
     try:
         vehicle = vehicle_collection.find_one({"_id": ObjectId(id)})
     except:
-        raise HTTPException(status_code=400, detail="Invalid vehicle ID format")
+        raise HTTPException(
+            status_code=400, detail="Invalid vehicle ID format")
 
     if not vehicle:
         raise HTTPException(status_code=404, detail="Vehicle not found")
 
     vehicle_location = vehicle.get("location", {})
     if not vehicle_location.get("latitude") or not vehicle_location.get("longitude"):
-        raise HTTPException(status_code=400, detail="Vehicle location unavailable")
+        raise HTTPException(
+            status_code=400, detail="Vehicle location unavailable")
 
     return VehicleTrackResponse(
         id=str(vehicle["_id"]),
@@ -197,10 +211,12 @@ def track_vehicle(id: str, current_user: dict = Depends(user_or_admin_required))
         driverName=vehicle.get("driverName", ""),
         plate=vehicle.get("plate", "")
     )
-    
+
 # ADDED TO WEBSOCKET
 
-#You can create a separate endpoint to update device_id when the IoT device is registered
+# You can create a separate endpoint to update device_id when the IoT device is registered
+
+
 @router.put("/assign-device/{vehicle_id}")
 async def assign_device_id(vehicle_id: str, device_id: str, current_user: dict = Depends(super_and_admin_required)):
     try:
@@ -220,7 +236,9 @@ async def assign_device_id(vehicle_id: str, device_id: str, current_user: dict =
 
         return {"message": "Device ID assigned successfully"}
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid vehicle ID format")
+        raise HTTPException(
+            status_code=400, detail="Invalid vehicle ID format")
+
 
 @router.delete("/{vehicle_id}")
 async def delete_vehicle(vehicle_id: str, current_user: dict = Depends(super_and_admin_required)):
@@ -228,7 +246,7 @@ async def delete_vehicle(vehicle_id: str, current_user: dict = Depends(super_and
         vehicle = vehicle_collection.find_one({"_id": ObjectId(vehicle_id)})
         if not vehicle:
             raise HTTPException(status_code=404, detail="Vehicle not found")
-        
+
         fleet_id = str(vehicle.get("fleet_id", ""))
         result = vehicle_collection.delete_one({"_id": ObjectId(vehicle_id)})
         if result.deleted_count == 0:
@@ -243,7 +261,9 @@ async def delete_vehicle(vehicle_id: str, current_user: dict = Depends(super_and
 
         return {"message": "Vehicle deleted"}
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid vehicle ID format")
+        raise HTTPException(
+            status_code=400, detail="Invalid vehicle ID format")
+
 
 @router.websocket("/ws/count-vehicles")
 async def websocket_count_vehicles(websocket: WebSocket):
@@ -267,6 +287,7 @@ async def websocket_count_vehicles(websocket: WebSocket):
         # Log other errors, but don’t try to send_json here
         print(f"Unexpected error in /ws/count-vehicles: {e}")
         vehicle_count_manager.disconnect(websocket)
+
 
 @router.websocket("/ws/vehicles/available/{fleet_id}")
 async def available_vehicles_ws(websocket: WebSocket, fleet_id: str):
@@ -303,9 +324,12 @@ async def available_vehicles_ws(websocket: WebSocket, fleet_id: str):
         print(f"Available vehicle stream for fleet {fleet_id} disconnected")
     except Exception as e:
         vehicle_all_manager.disconnect(websocket, fleet_id)
-        print(f"Error in available vehicles WebSocket for fleet {fleet_id}: {e}")
+        print(
+            f"Error in available vehicles WebSocket for fleet {fleet_id}: {e}")
 
-#NEWLY ADDED
+# NEWLY ADDED
+
+
 @router.websocket("/ws/vehicles/all/{fleet_id}")
 async def websocket_all_vehicles(websocket: WebSocket, fleet_id: str):
     """
@@ -328,3 +352,289 @@ async def websocket_all_vehicles(websocket: WebSocket, fleet_id: str):
     except Exception as e:
         vehicle_all_manager.disconnect(websocket, fleet_id)
         print(f"Error in vehicles WebSocket for fleet {fleet_id}: {e}")
+
+# ========================
+# IoT status update endpoints
+# ========================
+
+
+class IoTStatusUpdate(BaseModel):
+    key: str
+
+
+def _map_key_to_status_and_detail(key: str):
+    """Map IoT keypad key to canonical status and optional detail string.
+
+    We preserve only the enum-friendly statuses in `status` to avoid breaking
+    existing filters and counts, and put nuance in `status_detail`.
+    """
+    k = (key or "").strip().upper()
+    if k == '1':
+        return (VehicleStatus.full.value, "full")
+    if k == '2':
+        return (VehicleStatus.available.value, "available")
+    if k == 'A':  # STANDING -> treat as available, keep detail
+        return (VehicleStatus.available.value, "standing")
+    if k == '4':  # INACTIVE -> treat as unavailable, keep detail
+        return (VehicleStatus.unavailable.value, "inactive")
+    return (None, None)
+
+
+@router.post("/status/device/{device_id}")
+async def update_status_by_device(device_id: str, payload: IoTStatusUpdate):
+    """Update a vehicle's status using an IoT keypad key, addressing by device_id.
+
+    Mappings:
+    - '1' -> FULL
+    - '2' -> AVAILABLE
+    - 'A' -> STANDING (treated as AVAILABLE in `status`, stored in `status_detail`)
+    - '4' -> INACTIVE (treated as UNAVAILABLE in `status`, stored in `status_detail`)
+
+    Note: '5' (HELP REQUESTED) is handled via a separate endpoint.
+    """
+    vehicle = vehicle_collection.find_one({"device_id": device_id})
+    if not vehicle:
+        raise HTTPException(
+            status_code=404, detail="Vehicle with that device_id not found")
+
+    status_value, detail = _map_key_to_status_and_detail(payload.key)
+    if not status_value:
+        raise HTTPException(
+            status_code=400, detail="Unsupported key. Use '1','2','A','4' or call help endpoint for '5'.")
+
+    update_doc = {"status": status_value}
+    if detail:
+        update_doc["status_detail"] = detail
+
+    result = vehicle_collection.update_one(
+        {"_id": vehicle["_id"]},
+        {"$set": update_doc}
+    )
+
+    # Broadcast updated lists for the fleet
+    fleet_id = str(vehicle.get("fleet_id", ""))
+    await broadcast_vehicle_list(fleet_id)
+
+    # If newly available and has a valid location, broadcast available list
+    v_after = vehicle_collection.find_one({"_id": vehicle["_id"]})
+    loc = v_after.get("location") if v_after else None
+    if (
+        v_after
+        and v_after.get("status") == VehicleStatus.available.value
+        and isinstance(loc, dict)
+        and loc.get("latitude") is not None
+        and loc.get("longitude") is not None
+    ):
+        await broadcast_available_vehicle_list(fleet_id)
+
+    return {"message": "Vehicle status updated", "status": status_value, "status_detail": detail}
+
+
+class HelpRequest(BaseModel):
+    message: Optional[str] = None
+    key: Optional[Union[str, int]] = None
+
+
+@router.post("/help-request/device/{device_id}")
+async def help_request_by_device(device_id: str, payload: HelpRequest | None = None):
+    """Handle HELP REQUESTED from IoT (key '5') by notifying fleet admins."""
+    vehicle = vehicle_collection.find_one({"device_id": device_id})
+    if not vehicle:
+        raise HTTPException(
+            status_code=404, detail="Vehicle with that device_id not found")
+
+    # If a key is passed here and it's not '5', reject to avoid misrouting
+    if payload and payload.key is not None:
+        k = str(payload.key).strip().upper()
+        if k != '5':
+            raise HTTPException(
+                status_code=400, detail="Wrong endpoint for this key. Use /vehicles/status/device for '1','2','A','4', /vehicles/bound-for/device for '6','7', or /vehicles/iot/device for unified handling.")
+
+    fleet_id = str(vehicle.get("fleet_id", ""))
+    plate = vehicle.get("plate") or str(vehicle.get("_id"))
+
+    # Find admins for this fleet
+    admins_cursor = user_collection.find({
+        "role": {"$in": ["admin", "superadmin"]},
+        "$or": [
+            {"fleet_id": fleet_id},
+            {"fleet_id": ObjectId(fleet_id)} if ObjectId.is_valid(
+                fleet_id) else {}
+        ]
+    })
+
+    notified = 0
+    details = payload.message if payload and payload.message else ""
+    title = "Help requested"
+    body = f"Vehicle {plate} has requested help." + \
+        (f" Details: {details}" if details else "")
+
+    async def _notify_user(user):
+        token = user.get("fcm_token")
+        if not token:
+            return False
+        ok = await send_fcm_notification(token, title, body)
+        return ok
+
+    # Notify each admin asynchronously (sequential await to avoid overwhelming FCM)
+    for admin in admins_cursor:
+        try:
+            if await _notify_user(admin):
+                notified += 1
+        except Exception:
+            pass
+
+    # Log the help request
+    notification_logs_collection.insert_one({
+        "vehicle_id": str(vehicle["_id"]),
+        "fleet_id": fleet_id,
+        "timestamp": datetime.utcnow(),
+        "notification_type": "help_request",
+        "message": details
+    })
+
+    return {"message": "Help request processed", "admins_notified": notified}
+
+
+# ========================
+# IoT bound_for update endpoint (keys '6' and '7')
+# ========================
+
+class IoTBoundForUpdate(BaseModel):
+    key: str
+
+
+def _map_key_to_bound_for(key: str):
+    k = (key or "").strip()
+    if k == '6':
+        return "IGPIT"
+    if k == '7':
+        return "BUGO"
+    return None
+
+
+@router.post("/bound-for/device/{device_id}")
+async def update_bound_for_by_device(device_id: str, payload: IoTBoundForUpdate):
+    """Update a vehicle's bound_for using IoT keypad key ('6' or '7')."""
+    vehicle = vehicle_collection.find_one({"device_id": device_id})
+    if not vehicle:
+        raise HTTPException(
+            status_code=404, detail="Vehicle with that device_id not found")
+
+    bound_for = _map_key_to_bound_for(payload.key)
+    if not bound_for:
+        raise HTTPException(
+            status_code=400, detail="Unsupported key. Use '6' for IGPIT or '7' for BUGO.")
+
+    vehicle_collection.update_one(
+        {"_id": vehicle["_id"]},
+        {"$set": {"bound_for": bound_for}}
+    )
+
+    # Broadcast updated vehicles for the fleet
+    fleet_id = str(vehicle.get("fleet_id", ""))
+    await broadcast_vehicle_list(fleet_id)
+
+    return {"message": "Vehicle bound_for updated", "bound_for": bound_for}
+
+
+# ========================
+# Unified IoT keypad endpoint
+# ========================
+
+class IoTUnifiedUpdate(BaseModel):
+    key: str | int
+    message: str | None = None
+
+
+@router.post("/iot/device/{device_id}")
+async def iot_keypad_update(device_id: str, payload: IoTUnifiedUpdate):
+    """Unified endpoint for IoT keypad events.
+
+    Keys mapping:
+    - '1' -> FULL (status)
+    - '2' -> AVAILABLE (status)
+    - 'A' -> STANDING (treated as AVAILABLE with status_detail)
+    - '4' -> INACTIVE (treated as UNAVAILABLE with status_detail)
+    - '5' -> HELP REQUESTED (notify admins)
+    - '6' -> BOUND FOR IGPIT
+    - '7' -> BOUND FOR BUGO
+    """
+    vehicle = vehicle_collection.find_one({"device_id": device_id})
+    if not vehicle:
+        raise HTTPException(
+            status_code=404, detail="Vehicle with that device_id not found")
+
+    k = str(payload.key).strip().upper()
+
+    # Help request (5)
+    if k == '5':
+        fleet_id = str(vehicle.get("fleet_id", ""))
+        plate = vehicle.get("plate") or str(vehicle.get("_id"))
+        admins_cursor = user_collection.find({
+            "role": {"$in": ["admin", "superadmin"]},
+            "$or": [
+                {"fleet_id": fleet_id},
+                {"fleet_id": ObjectId(fleet_id)} if ObjectId.is_valid(
+                    fleet_id) else {}
+            ]
+        })
+        title = "Help requested"
+        details = payload.message or ""
+        body = f"Vehicle {plate} has requested help." + \
+            (f" Details: {details}" if details else "")
+        notified = 0
+        for admin in admins_cursor:
+            token = admin.get("fcm_token")
+            if not token:
+                continue
+            try:
+                if await send_fcm_notification(token, title, body):
+                    notified += 1
+            except Exception:
+                pass
+
+        notification_logs_collection.insert_one({
+            "vehicle_id": str(vehicle["_id"]),
+            "fleet_id": fleet_id,
+            "timestamp": datetime.utcnow(),
+            "notification_type": "help_request",
+            "message": details
+        })
+        return {"message": "Help request processed", "admins_notified": notified}
+
+    # Status updates (1,2,A,4)
+    status_value, detail = _map_key_to_status_and_detail(k)
+    if status_value:
+        update_doc = {"status": status_value}
+        if detail:
+            update_doc["status_detail"] = detail
+        vehicle_collection.update_one(
+            {"_id": vehicle["_id"]}, {"$set": update_doc})
+
+        fleet_id = str(vehicle.get("fleet_id", ""))
+        await broadcast_vehicle_list(fleet_id)
+        v_after = vehicle_collection.find_one({"_id": vehicle["_id"]})
+        loc = v_after.get("location") if v_after else None
+        if (
+            v_after
+            and v_after.get("status") == VehicleStatus.available.value
+            and isinstance(loc, dict)
+            and loc.get("latitude") is not None
+            and loc.get("longitude") is not None
+        ):
+            await broadcast_available_vehicle_list(fleet_id)
+        return {"message": "Vehicle status updated", "status": status_value, "status_detail": detail}
+
+    # Bound for (6,7)
+    bound_for = _map_key_to_bound_for(k)
+    if bound_for:
+        vehicle_collection.update_one({"_id": vehicle["_id"]}, {
+                                      "$set": {"bound_for": bound_for}})
+        fleet_id = str(vehicle.get("fleet_id", ""))
+        await broadcast_vehicle_list(fleet_id)
+        return {"message": "Vehicle bound_for updated", "bound_for": bound_for}
+
+    # Unsupported
+    raise HTTPException(
+        status_code=400, detail="Unsupported key. Use '1','2','A','4','5','6','7'.")
