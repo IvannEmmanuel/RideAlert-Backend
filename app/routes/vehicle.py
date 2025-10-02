@@ -1,3 +1,4 @@
+from typing import Optional, Union
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi import Body
 from pydantic import BaseModel
@@ -430,7 +431,8 @@ async def update_status_by_device(device_id: str, payload: IoTStatusUpdate):
 
 
 class HelpRequest(BaseModel):
-    message: str | None = None
+    message: Optional[str] = None
+    key: Optional[Union[str, int]] = None
 
 
 @router.post("/help-request/device/{device_id}")
@@ -440,6 +442,13 @@ async def help_request_by_device(device_id: str, payload: HelpRequest | None = N
     if not vehicle:
         raise HTTPException(
             status_code=404, detail="Vehicle with that device_id not found")
+
+    # If a key is passed here and it's not '5', reject to avoid misrouting
+    if payload and payload.key is not None:
+        k = str(payload.key).strip().upper()
+        if k != '5':
+            raise HTTPException(
+                status_code=400, detail="Wrong endpoint for this key. Use /vehicles/status/device for '1','2','A','4', /vehicles/bound-for/device for '6','7', or /vehicles/iot/device for unified handling.")
 
     fleet_id = str(vehicle.get("fleet_id", ""))
     plate = vehicle.get("plate") or str(vehicle.get("_id"))
@@ -485,3 +494,147 @@ async def help_request_by_device(device_id: str, payload: HelpRequest | None = N
     })
 
     return {"message": "Help request processed", "admins_notified": notified}
+
+
+# ========================
+# IoT bound_for update endpoint (keys '6' and '7')
+# ========================
+
+class IoTBoundForUpdate(BaseModel):
+    key: str
+
+
+def _map_key_to_bound_for(key: str):
+    k = (key or "").strip()
+    if k == '6':
+        return "IGPIT"
+    if k == '7':
+        return "BUGO"
+    return None
+
+
+@router.post("/bound-for/device/{device_id}")
+async def update_bound_for_by_device(device_id: str, payload: IoTBoundForUpdate):
+    """Update a vehicle's bound_for using IoT keypad key ('6' or '7')."""
+    vehicle = vehicle_collection.find_one({"device_id": device_id})
+    if not vehicle:
+        raise HTTPException(
+            status_code=404, detail="Vehicle with that device_id not found")
+
+    bound_for = _map_key_to_bound_for(payload.key)
+    if not bound_for:
+        raise HTTPException(
+            status_code=400, detail="Unsupported key. Use '6' for IGPIT or '7' for BUGO.")
+
+    vehicle_collection.update_one(
+        {"_id": vehicle["_id"]},
+        {"$set": {"bound_for": bound_for}}
+    )
+
+    # Broadcast updated vehicles for the fleet
+    fleet_id = str(vehicle.get("fleet_id", ""))
+    await broadcast_vehicle_list(fleet_id)
+
+    return {"message": "Vehicle bound_for updated", "bound_for": bound_for}
+
+
+# ========================
+# Unified IoT keypad endpoint
+# ========================
+
+class IoTUnifiedUpdate(BaseModel):
+    key: str | int
+    message: str | None = None
+
+
+@router.post("/iot/device/{device_id}")
+async def iot_keypad_update(device_id: str, payload: IoTUnifiedUpdate):
+    """Unified endpoint for IoT keypad events.
+
+    Keys mapping:
+    - '1' -> FULL (status)
+    - '2' -> AVAILABLE (status)
+    - 'A' -> STANDING (treated as AVAILABLE with status_detail)
+    - '4' -> INACTIVE (treated as UNAVAILABLE with status_detail)
+    - '5' -> HELP REQUESTED (notify admins)
+    - '6' -> BOUND FOR IGPIT
+    - '7' -> BOUND FOR BUGO
+    """
+    vehicle = vehicle_collection.find_one({"device_id": device_id})
+    if not vehicle:
+        raise HTTPException(
+            status_code=404, detail="Vehicle with that device_id not found")
+
+    k = str(payload.key).strip().upper()
+
+    # Help request (5)
+    if k == '5':
+        fleet_id = str(vehicle.get("fleet_id", ""))
+        plate = vehicle.get("plate") or str(vehicle.get("_id"))
+        admins_cursor = user_collection.find({
+            "role": {"$in": ["admin", "superadmin"]},
+            "$or": [
+                {"fleet_id": fleet_id},
+                {"fleet_id": ObjectId(fleet_id)} if ObjectId.is_valid(
+                    fleet_id) else {}
+            ]
+        })
+        title = "Help requested"
+        details = payload.message or ""
+        body = f"Vehicle {plate} has requested help." + \
+            (f" Details: {details}" if details else "")
+        notified = 0
+        for admin in admins_cursor:
+            token = admin.get("fcm_token")
+            if not token:
+                continue
+            try:
+                if await send_fcm_notification(token, title, body):
+                    notified += 1
+            except Exception:
+                pass
+
+        notification_logs_collection.insert_one({
+            "vehicle_id": str(vehicle["_id"]),
+            "fleet_id": fleet_id,
+            "timestamp": datetime.utcnow(),
+            "notification_type": "help_request",
+            "message": details
+        })
+        return {"message": "Help request processed", "admins_notified": notified}
+
+    # Status updates (1,2,A,4)
+    status_value, detail = _map_key_to_status_and_detail(k)
+    if status_value:
+        update_doc = {"status": status_value}
+        if detail:
+            update_doc["status_detail"] = detail
+        vehicle_collection.update_one(
+            {"_id": vehicle["_id"]}, {"$set": update_doc})
+
+        fleet_id = str(vehicle.get("fleet_id", ""))
+        await broadcast_vehicle_list(fleet_id)
+        v_after = vehicle_collection.find_one({"_id": vehicle["_id"]})
+        loc = v_after.get("location") if v_after else None
+        if (
+            v_after
+            and v_after.get("status") == VehicleStatus.available.value
+            and isinstance(loc, dict)
+            and loc.get("latitude") is not None
+            and loc.get("longitude") is not None
+        ):
+            await broadcast_available_vehicle_list(fleet_id)
+        return {"message": "Vehicle status updated", "status": status_value, "status_detail": detail}
+
+    # Bound for (6,7)
+    bound_for = _map_key_to_bound_for(k)
+    if bound_for:
+        vehicle_collection.update_one({"_id": vehicle["_id"]}, {
+                                      "$set": {"bound_for": bound_for}})
+        fleet_id = str(vehicle.get("fleet_id", ""))
+        await broadcast_vehicle_list(fleet_id)
+        return {"message": "Vehicle bound_for updated", "bound_for": bound_for}
+
+    # Unsupported
+    raise HTTPException(
+        status_code=400, detail="Unsupported key. Use '1','2','A','4','5','6','7'.")
