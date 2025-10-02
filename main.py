@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi import Response
 from app.routes import user
 from app.routes import vehicle
 from app.routes.websockets import ws_router
@@ -32,7 +33,7 @@ app.add_middleware(
     CORSMiddleware,
     # Allow all origins, adjust as needed
     allow_origins=["http://localhost:5173",
-                   "https://ride-alert-admin-panel.vercel.app", 
+                   "https://ride-alert-admin-panel.vercel.app",
                    "http://localhost:5174",
                    "http://localhost:8081",
                    "*"],
@@ -64,6 +65,12 @@ def health_check():
         "status": "healthy",
         "message": "RideAlert Backend is running"
     }
+
+
+@app.head("/healthz")
+def healthz_head():
+    """Lightweight liveness probe (HEAD) with no body"""
+    return Response(status_code=200)
 
 
 @app.get("/status")
