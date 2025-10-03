@@ -232,9 +232,14 @@ async def predict(request: PredictionRequest):
         try:
             # Update the vehicle's location with corrected coordinates
             # Set the entire location object to handle cases where location might be null
+            # Build a robust filter: device_id as trimmed string, and (if valid) as ObjectId
+            dev_id = str(request.device_id).strip()
+            filter_query = {"$or": [{"device_id": dev_id}]}
+            if ObjectId.is_valid(dev_id):
+                filter_query["$or"].append({"device_id": ObjectId(dev_id)})
+
             update_result = db.vehicles.update_one(
-                # Match by IoT device_id (string)
-                {"device_id": request.device_id},
+                filter_query,
                 {
                     "$set": {
                         # Conform to Vehicle Location schema
