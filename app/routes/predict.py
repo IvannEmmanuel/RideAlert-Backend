@@ -233,12 +233,14 @@ async def predict(request: PredictionRequest):
             # Update the vehicle's location with corrected coordinates
             # Set the entire location object to handle cases where location might be null
             update_result = db.vehicles.update_one(
-                {"device_id": ObjectId(request.device_id)},
+                # Match by IoT device_id (string)
+                {"device_id": request.device_id},
                 {
                     "$set": {
+                        # Conform to Vehicle Location schema
                         "location": {
-                            "latitude": corrected_lat,
-                            "longitude": corrected_lng
+                            "latitude": float(corrected_lat),
+                            "longitude": float(corrected_lng)
                         }
                     }
                 }
@@ -246,7 +248,7 @@ async def predict(request: PredictionRequest):
 
             if update_result.matched_count > 0:
                 print(
-                    f"🚗 Vehicle {request.device_id} location updated: lat={corrected_lat:.6f}, lng={corrected_lng:.6f}")
+                    f"🚗 Vehicle {request.device_id} corrected location updated: lat={corrected_lat:.6f}, lng={corrected_lng:.6f}")
             else:
                 print(
                     f"⚠️ Warning: Vehicle {request.device_id} not found in vehicles collection")
