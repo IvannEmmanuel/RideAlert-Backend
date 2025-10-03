@@ -1,15 +1,27 @@
 from fastapi import APIRouter, HTTPException, Depends, Body, WebSocket, WebSocketDisconnect
 from app.schemas.user import UserCreate, UserInDB, UserLogin, Location
-from app.database import user_collection
+from app.database import user_collection, vehicle_collection
 from app.models.user import user_helper
+from app.schemas.user import Location as UserLocation  # Adjust import if needed
 from bson import ObjectId
+from pydantic import BaseModel, ValidationError
 from app.utils.pasword_hashing import hash_password
 from app.utils.pasword_hashing import verify_password
+from app.utils.haversine import haversine_code
+from app.utils.notifications import check_and_notify
 from app.utils.auth_token import create_access_token
 from fastapi.responses import JSONResponse
 from app.dependencies.roles import admin_required, user_required, user_or_admin_required, super_admin_required
 from app.utils.ws_manager import user_count_manager
 import asyncio
+import logging
+
+class LocationUpdate(BaseModel):
+    latitude: float
+    longitude: float
+    # Add accuracy, timestamp if needed
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -69,24 +81,97 @@ def login_user(login_data: UserLogin):
     })
 
 @router.post("/location")
-async def update_location(
-    location: Location,
-    current_user: dict = Depends(user_or_admin_required)
+async def update_user_location_http(
+    location_update: LocationUpdate,
+    current_user: dict = Depends(user_required)  # e.g., {"user_id": "user_id", "role": "user"}
 ):
-    user_id = current_user.get("user_id") or current_user.get("_id")
-    if not user_id:
-        raise HTTPException(status_code=400, detail="User ID not found in token")
-
-    result = user_collection.update_one(
-        {"_id": ObjectId(user_id)},
-        {"$set": {"location": location.dict()}}
+    logger.info(f"📍 Location update received: {location_update.dict()}")
+    logger.info(f"🔑 Current user from dep: {current_user}")  # Debug: See structure
+    
+    # 🛠️ Fix: Extract user_id safely (includes 'user_id' from your logs)
+    user_id = (
+        current_user.get('user_id') or  # Your actual key
+        current_user.get('id') or 
+        current_user.get('sub') or 
+        current_user.get('_id')
     )
-
-    if result.matched_count == 1:
-        return {"message": "The location updated successfully"}
-
-    raise HTTPException(status_code=404, detail="User not found")
-
+    if not user_id:
+        logger.error(f"❌ No user ID in current_user: {current_user}")
+        raise HTTPException(status_code=401, detail="Invalid token: Missing user ID")
+    
+    user_id = str(user_id)  # Ensure string
+    oid = ObjectId(user_id)
+    logger.info(f"👤 Extracted user_id: {user_id}")
+    
+    # Create Location object (assume UserLocation schema exists; fallback to dict)
+    try:
+        from app.schemas.user import Location as UserLocation  # Adjust if path differs
+        location = UserLocation(latitude=location_update.latitude, longitude=location_update.longitude)
+    except (ImportError, ValidationError):
+        # Fallback: Simple dict if schema not available
+        location = {"latitude": location_update.latitude, "longitude": location_update.longitude}
+        logger.warning("⚠️ Using dict fallback for location")
+    
+    # Fetch user from DB (ensures fleet_id exists)
+    user = user_collection.find_one({"_id": oid})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if not user.get("fleet_id"):
+        raise HTTPException(status_code=400, detail="User missing fleet_id")
+    
+    fleet_id = user["fleet_id"]
+    
+    # Update DB location
+    result = user_collection.update_one(
+        {"_id": oid},
+        {"$set": {"location": location if isinstance(location, dict) else location.dict()}}
+    )
+    
+    if result.modified_count == 0:
+        logger.info(f"📍 No change in location for {user_id} (same as before)")
+    else:
+        logger.info(f"💾 Location updated in DB for {user_id}")
+    
+    # Always run proximity checks, even if no DB change (user might have moved slightly)
+    
+    # Trigger proximity checks
+    try:
+        # Query available vehicles in fleet with valid locations
+        fleet_query = {
+            "fleet_id": fleet_id,
+            "status": "available",
+            "$or": [
+                {"location.latitude": {"$exists": True, "$ne": None}},
+                {"location.longitude": {"$exists": True, "$ne": None}}
+            ]
+        }
+        vehicles = list(vehicle_collection.find(fleet_query).limit(50))  # Limit for perf
+        
+        logger.info(f"🔍 Found {len(vehicles)} available vehicles for fleet {fleet_id}")
+        
+        notified_count = 0
+        for vehicle in vehicles:
+            vehicle_id = str(vehicle["_id"])
+            vehicle_loc = vehicle.get("location")
+            if vehicle_loc and vehicle_loc.get("latitude") is not None and vehicle_loc.get("longitude") is not None:
+                success = await check_and_notify(
+                    user_id,
+                    type("UserLoc", (), {"latitude": location_update.latitude, "longitude": location_update.longitude})(),
+                    type("VehicleLoc", (), vehicle_loc)(),
+                    vehicle_id
+                )
+                if success:
+                    notified_count += 1
+                    logger.info(f"🔔 Tiered notification triggered for vehicle {vehicle_id}")
+        
+        logger.info(f"✅ Proximity checks complete: {notified_count} tiered notifications sent")
+        return {"message": f"Location processed. {notified_count} tiered notifications sent."}
+        
+    except Exception as e:
+        logger.error(f"💥 Proximity check error for {user_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Proximity check failed: {str(e)}")
+    
 @router.post("/fcm-token")
 async def save_fcm_token(
     user_id: str = Body(...),
