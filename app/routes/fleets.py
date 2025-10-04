@@ -210,32 +210,22 @@ async def login_fleet(email: str = Body(...), password: str = Body(...)):
         "fleet": fleet_data
     }
 
-@router.websocket("/ws/all")
-async def websocket_all_fleets(websocket: WebSocket):
+@router.get("/all")
+async def get_all_fleets():
     """
-    WebSocket endpoint to stream all fleets in real-time.
-    Excludes fleets with role 'superadmin'.
+    Fetch all fleets once (excluding superadmin).
     """
-    await fleet_all_manager.connect(websocket)
     collection = get_fleets_collection
-
-    try:
-        # Send initial fleet list
-        fleet_docs = collection.find({"role": {"$ne": "superadmin"}})
-        fleets_list = [
-            {
-                key: serialize_datetime(value) if isinstance(value, (datetime, ObjectId)) else value
-                for key, value in fleets(f).items()
-            } for f in fleet_docs
-        ]
-        await websocket.send_json({"fleets": fleets_list})
-
-        # Keep connection alive
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        fleet_all_manager.disconnect(websocket)
-        print("Client disconnected from /ws/all")
+    fleet_docs = collection.find({"role": {"$ne": "superadmin"}})
+    
+    fleets_list = [
+        {
+            key: serialize_datetime(value) if isinstance(value, (datetime, ObjectId)) else value
+            for key, value in fleets(f).items()
+        }
+        for f in fleet_docs
+    ]
+    return {"fleets": fleets_list}
 
 @router.websocket("/{fleet_id}/ws")
 async def websocket_fleet_details(websocket: WebSocket, fleet_id: str):
