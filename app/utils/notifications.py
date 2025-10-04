@@ -37,17 +37,15 @@ import logging
 from pytz import timezone
 
 ph_tz = timezone("Asia/Manila")
-now = datetime.now(ph_tz)
 
-# Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 async def check_and_notify(user_id, user_location, vehicle_location, vehicle_id=None, fleet_id=None):
     """
     Check distance between user and vehicle and send tiered notifications:
-    - <=500m: first notification
-    - <=100m: second notification
+    - <=500m: first notification (ONCE)
+    - <=100m: second notification (ONCE)
     - Reset both if distance >500m
     """
     try:
@@ -58,20 +56,31 @@ async def check_and_notify(user_id, user_location, vehicle_location, vehicle_id=
             vehicle_location.latitude,
             vehicle_location.longitude
         )
-        logger.info(f"Distance for user {user_id} vehicle {vehicle_id}: {distance}m")
+        logger.info(f"Distance for user {user_id} vehicle {vehicle_id}: {distance:.1f}m")
 
-        # Query for existing log
-        query = {"user_id": user_id, "vehicle_id": vehicle_id, "fleet_id": fleet_id}
+        # Query for existing log with ALL matching fields
+        query = {
+            "user_id": ObjectId(user_id),
+            "vehicle_id": vehicle_id,
+            "fleet_id": ObjectId(fleet_id)
+        }
         state = notification_logs_collection.find_one(query)
 
         if distance > 500:
             # Reset notifications if user moves away
-            notification_logs_collection.update_one(
-                query,
-                {"$set": {"notified_500m": False, "notified_100m": False, "last_distance": distance, "timestamp": datetime.now(ph_tz)}},
-                upsert=True
-            )
-            logger.info(f"Reset notifications for user {user_id} vehicle {vehicle_id}")
+            if state:
+                notification_logs_collection.update_one(
+                    query,
+                    {
+                        "$set": {
+                            "notified_500m": False,
+                            "notified_100m": False,
+                            "last_distance": distance,
+                            "timestamp": datetime.now(ph_tz)
+                        }
+                    }
+                )
+                logger.info(f"🔄 Reset notifications for user {user_id} vehicle {vehicle_id} (distance: {distance:.1f}m)")
             return False
 
         # Initialize state if first time
@@ -87,33 +96,53 @@ async def check_and_notify(user_id, user_location, vehicle_location, vehicle_id=
                 "notification_type": "proximity_state"
             })
             state = {"notified_500m": False, "notified_100m": False}
+            logger.info(f"📝 Created new notification state for user {user_id} vehicle {vehicle_id}")
 
         notified = False
         updates = {}
 
-        # Tier 100m notification
+        # Tier 1: 100m notification (ONLY if not already sent)
         if distance <= 100 and not state.get("notified_100m", False):
-            if await _send_tiered_notification(user_id, f"PUV Very Close! ({int(distance)}m)", "A PUV is now within 100m—time to board!"):
+            logger.info(f"🔔 Attempting 100m notification for user {user_id}")
+            if await _send_tiered_notification(
+                user_id,
+                f"PUV Very Close! ({int(distance)}m)",
+                "A PUV is now within 100m—time to board!",
+                vehicle_id
+            ):
                 updates["notified_100m"] = True
+                updates["notified_500m"] = True  # ← KEY FIX: Mark 500m as sent too!
                 notified = True
+                logger.info(f"✅ Sent 100m notification to user {user_id}")
 
-        # Tier 500m notification
-        if distance <= 500 and not state.get("notified_500m", False):
-            if await _send_tiered_notification(user_id, f"PUV Nearby! ({int(distance)}m)", "A PUV has entered 500m range."):
+        # Tier 2: 500m notification (ONLY if not already sent)
+        elif distance <= 500 and not state.get("notified_500m", False):
+            logger.info(f"🔔 Attempting 500m notification for user {user_id}")
+            if await _send_tiered_notification(
+                user_id,
+                f"PUV Nearby! ({int(distance)}m)",
+                "A PUV has entered 500m range.",
+                vehicle_id
+            ):
                 updates["notified_500m"] = True
                 notified = True
+                logger.info(f"✅ Sent 500m notification to user {user_id}")
 
-        # Apply any updates to MongoDB
+        # Apply updates to MongoDB
         if updates:
-            updates.update({"last_distance": distance, "timestamp": datetime.utcnow()})
+            updates.update({
+                "last_distance": distance,
+                "timestamp": datetime.now(ph_tz)
+            })
             notification_logs_collection.update_one(query, {"$set": updates})
+            logger.info(f"💾 Updated notification state: {updates}")
 
         return notified
 
     except Exception as e:
-        logger.error(f"check_and_notify error for user {user_id}: {str(e)}")
+        logger.error(f"❌ check_and_notify error for user {user_id}: {str(e)}")
         return False
-    
+
 async def _send_tiered_notification(user_id, title, body, vehicle_id=None):
     """
     Send FCM notification AND insert a log into notification_logs_collection
@@ -121,14 +150,17 @@ async def _send_tiered_notification(user_id, title, body, vehicle_id=None):
     try:
         user_data = user_collection.find_one({"_id": ObjectId(user_id)})
         if not user_data or not user_data.get("fcm_token"):
-            logger.error(f"No FCM token for user {user_id}")
+            logger.error(f"❌ No FCM token for user {user_id}")
             return False
 
         fcm_token = user_data["fcm_token"]
 
         # Send FCM
         loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, lambda: send_push_notification(fcm_token, title, body))
+        result = await loop.run_in_executor(
+            None,
+            lambda: send_push_notification(fcm_token, title, body)
+        )
 
         if result:
             # Insert log for frontend
@@ -138,13 +170,13 @@ async def _send_tiered_notification(user_id, title, body, vehicle_id=None):
                 "vehicle_id": vehicle_id,
                 "message": body,
                 "createdAt": datetime.now(ph_tz),
-                "notification_type": "proximity_state"
+                "notification_type": "proximity_alert"
             })
-            logger.info(f"Notification log inserted for user {user_id}: {body}")
+            logger.info(f"✅ Notification sent & logged: {title}")
         return result
 
     except Exception as e:
-        logger.error(f"Error sending/logging notification for user {user_id}: {str(e)}")
+        logger.error(f"❌ Error sending notification for user {user_id}: {str(e)}")
         return False
 
 async def send_fcm_notification(fcm_token, title, body):
