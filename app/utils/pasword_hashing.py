@@ -1,8 +1,18 @@
 from passlib.context import CryptContext
 import hashlib
+import warnings
 
-# Use bcrypt instead of bcrypt_sha256 for better compatibility
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Suppress bcrypt version warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="passlib")
+
+# Support both bcrypt_sha256 (for existing hashes) and bcrypt (for new hashes)
+# This ensures backward compatibility while fixing the bcrypt version issues
+pwd_context = CryptContext(
+    schemes=["bcrypt", "bcrypt_sha256"],
+    deprecated="auto",
+    # Use bcrypt for new hashes, but still verify bcrypt_sha256
+    default="bcrypt"
+)
 
 
 def _truncate_password(password: str) -> str:
@@ -21,5 +31,20 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    truncated_password = _truncate_password(plain_password)
-    return pwd_context.verify(truncated_password, hashed_password)
+    try:
+        truncated_password = _truncate_password(plain_password)
+        return pwd_context.verify(truncated_password, hashed_password)
+    except Exception as e:
+        # Log the error for debugging
+        print(f"Password verification error: {e}")
+        print(
+            f"Hash format: {hashed_password[:20]}..." if hashed_password else "No hash provided")
+
+        # Try with a fallback context that only supports bcrypt_sha256
+        try:
+            fallback_context = CryptContext(
+                schemes=["bcrypt_sha256"], deprecated="auto")
+            return fallback_context.verify(plain_password, hashed_password)
+        except Exception as fallback_e:
+            print(f"Fallback verification also failed: {fallback_e}")
+            return False
