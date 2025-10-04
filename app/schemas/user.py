@@ -20,6 +20,7 @@ class UserBase(BaseModel):
     role: UserRole
     location: Optional[Location] = None
     fleet_id: Optional[str] = None
+    notify: Optional[bool] = False  # ✅ NEW FIELD
 
 class UserCreate(UserBase):
     password: str
@@ -41,3 +42,9 @@ class UserPublic(BaseModel):
     address: str
     role: UserRole
     fleet_id: Optional[str] = None
+    notify: Optional[bool] = False  # ✅ NEW FIELD
+
+class NotifyToggle(BaseModel):
+    """Schema for toggling notify status"""
+    notify: bool
+    vehicle_id: Optional[str] = None  # Track which vehicle user wants notifications for
