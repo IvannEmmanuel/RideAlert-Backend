@@ -144,10 +144,11 @@ def get_user_notifications(user_id: str, fleet_id: str):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid user_id or fleet_id format")
 
+    # Fetch all notifications for this user + fleet, even if vehicle_id is null
     logs = notification_logs_collection.find({
         "user_id": user_obj_id,
         "fleet_id": fleet_obj_id
-    })
+    }).sort("createdAt", -1)  # newest first
 
     return [notification_log_class(log) for log in logs]
 

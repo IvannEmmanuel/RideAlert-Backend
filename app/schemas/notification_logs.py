@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from datetime import datetime
+from typing import Optional
 
 class NotificationLogBase(BaseModel):
     message: str
@@ -13,3 +14,4 @@ class NotificationLogPublic(NotificationLogBase):
     user_id: str
     createdAt: datetime
     fleet_id: str
+    vehicle_id: Optional[str] = None  # <-- make it optional
