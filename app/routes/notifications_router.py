@@ -107,6 +107,9 @@ async def create_notification_log(log: NotificationLogCreate):
 
     user_fleet_key = f"{str(log.user_id)}:{str(log.fleet_id)}"  # user+fleet key
 
+    if not log.message or not log.message.strip():
+        raise HTTPException(status_code=400, detail="Message is required")
+
     # 🔔 Broadcast via WebSocket
     if user_fleet_key in user_fleet_notification_subscribers:
         for ws in user_fleet_notification_subscribers[user_fleet_key]:
@@ -150,7 +153,9 @@ def get_user_notifications(user_id: str, fleet_id: str):
         "fleet_id": fleet_obj_id
     }).sort("createdAt", -1)  # newest first
 
-    return [notification_log_class(log) for log in logs]
+    # Filter out logs missing required fields
+    valid_logs = [log for log in logs if log.get("message")]  # Skip if no message
+    return [notification_log_class(log) for log in valid_logs]
 
 #to provide real-time updates from the /user/{user_id}
 @router.websocket("/user/{user_id}/{fleet_id}/ws")
