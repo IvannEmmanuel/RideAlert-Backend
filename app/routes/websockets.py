@@ -8,6 +8,9 @@ from app.utils.notifications import check_and_notify
 from typing import Dict, List
 import asyncio
 from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 ws_router = APIRouter(tags=["WebSocket"])
 
@@ -125,6 +128,14 @@ async def update_user_location(websocket: WebSocket):
                 await websocket.send_text(f"User {user_id} not found")
                 continue
 
+            # Ensure fleet_id exists
+            if not user.get("fleet_id"):
+                logger.error(f"No fleet_id for user {user_id}")
+                await websocket.send_text("User missing fleet_id")
+                continue
+
+            fleet_id = user["fleet_id"]  # ObjectId or str
+
             # Update location
             result = user_collection.update_one(
                 {"_id": oid},
@@ -132,9 +143,45 @@ async def update_user_location(websocket: WebSocket):
             )
 
             if result.modified_count == 1:
-                await websocket.send_text(f"Location updated for that user {user_id}")
+                await websocket.send_text(f"Location updated for user {user_id}")
+                
+                # Trigger proximity checks against fleet vehicles
+                try:
+                    # Query available vehicles in user's fleet with valid locations
+                    fleet_query = {
+                        "fleet_id": fleet_id,
+                        "status": "available",
+                        "$or": [
+                            {"location.latitude": {"$exists": True, "$ne": None}},
+                            {"location.longitude": {"$exists": True, "$ne": None}}
+                        ]
+                    }
+                    vehicles = list(vehicle_collection.find(fleet_query))
+                    
+                    logger.info(f"Checking proximity for user {user_id} against {len(vehicles)} vehicles in fleet {fleet_id}")
+                    
+                    # For each vehicle, check distance and notify if close
+                    notified_count = 0
+                    for vehicle in vehicles:
+                        vehicle_id = str(vehicle["_id"])
+                        vehicle_loc = vehicle.get("location")
+                        if vehicle_loc and vehicle_loc.get("latitude") and vehicle_loc.get("longitude"):
+                            success = await check_and_notify(
+                                str(oid),  # user_id
+                                location,  # UserLocation object
+                                type("VehicleLoc", (), vehicle_loc)(),  # Mock for VehicleLocation
+                                vehicle_id  # For anti-spam
+                            )
+                            if success:
+                                notified_count += 1
+                    
+                    logger.info(f"Proximity checks complete for user {user_id}: {notified_count} notifications sent")
+                    
+                except Exception as check_err:
+                    logger.error(f"Error in proximity checks for user {user_id}: {check_err}")
+                    await websocket.send_text(f"Proximity check failed: {check_err}")
             else:
-                await websocket.send_text(f"No location has change made for user {user_id}")
+                await websocket.send_text(f"No location change made for user {user_id}")
 
     except WebSocketDisconnect:
         print("User client is disconnected")
@@ -256,6 +303,7 @@ async def all_vehicles_ws(websocket: WebSocket, fleet_id: str):
                     "status": vehicle.get("status", "unavailable"),
                     "route": vehicle.get("route", ""),
                     "driverName": vehicle.get("driverName", ""),
+                    "bound_for": vehicle.get("bound_for"),
                     "plate": vehicle.get("plate", "")
                 })
 
@@ -290,7 +338,8 @@ async def available_vehicles_ws(websocket: WebSocket, fleet_id: str):
                     "route": vehicle.get("route", ""),
                     "driverName": vehicle.get("driverName", ""),
                     "plate": vehicle.get("plate", ""),
-                    "status": vehicle.get("status", "unavailable")
+                    "status": vehicle.get("status", "unavailable"),
+                    "bound_for": vehicle.get("bound_for")
                 })
 
             await websocket.send_json(vehicles)

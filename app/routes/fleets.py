@@ -1,22 +1,21 @@
-# Form file uploadfile added
-from fastapi import APIRouter, HTTPException, Body, Depends, WebSocket, WebSocketDisconnect, Form, File, UploadFile
+from fastapi import APIRouter, HTTPException, Body, Depends, WebSocket, WebSocketDisconnect, Form, File, UploadFile #Form file uploadfile added
 from app.models.fleets import fleets
 from app.schemas.fleets import FleetCreate, FleetPublic
 from app.database import get_fleets_collection
-from bson import ObjectId, Binary  # binary added
+from bson import ObjectId, Binary #binary added
 from datetime import datetime
 from typing import List, Dict, Optional
 from app.dependencies.roles import super_admin_required
-from app.utils.pasword_hashing import hash_password, verify_password, needs_update
+from app.utils.pasword_hashing import hash_password, verify_password
 from app.utils.auth_token import create_access_token
 from fastapi.encoders import jsonable_encoder
 from app.schemas.fleets import SubscriptionPlan
 from app.utils.ws_manager import fleet_all_manager, fleet_count_manager, fleet_details_manager
-import json  # added
-from pydantic import ValidationError  # added
-import base64  # added
-from fastapi.responses import StreamingResponse  # added
-import io  # added
+import json #added
+from pydantic import ValidationError #added
+import base64 #added
+from fastapi.responses import StreamingResponse  #added
+import io #added
 
 router = APIRouter(prefix="/fleets", tags=["Fleets"])
 
@@ -32,7 +31,6 @@ max_vehicles_limits = {
     SubscriptionPlan.enterprise: 100
 }
 
-
 def serialize_datetime(obj):
     """Convert datetime and ObjectId objects to strings."""
     if isinstance(obj, datetime):
@@ -41,20 +39,17 @@ def serialize_datetime(obj):
         return str(obj)
     return obj
 
-
 async def broadcast_fleet_list():
     """Helper function to broadcast the full fleet list to all connected /ws/all clients."""
     collection = get_fleets_collection()
     fleet_docs = collection.find({"role": {"$ne": "superadmin"}})
     fleets_list = [
         {
-            key: serialize_datetime(value) if isinstance(
-                value, (datetime, ObjectId)) else value
+            key: serialize_datetime(value) if isinstance(value, (datetime, ObjectId)) else value
             for key, value in fleets(f).items()
         } for f in fleet_docs
     ]
     await fleet_all_manager.broadcast({"fleets": fleets_list})
-
 
 async def broadcast_fleet_details(fleet_id: str):
     """Broadcast the details of a specific fleet to connected /fleet_id/ws clients."""
@@ -63,8 +58,7 @@ async def broadcast_fleet_details(fleet_id: str):
     if fleet_doc:
         fleet_data = fleets(fleet_doc)
         serialized_data = {
-            key: serialize_datetime(value) if isinstance(
-                value, (datetime, ObjectId)) else value
+            key: serialize_datetime(value) if isinstance(value, (datetime, ObjectId)) else value
             for key, value in fleet_data.items()
         }
         await fleet_details_manager.broadcast(serialized_data, fleet_id)
@@ -118,9 +112,7 @@ async def broadcast_fleet_details(fleet_id: str):
 
 #     return fleets(created)
 
-# newly added create
-
-
+#newly added create
 @router.post("/", response_model=FleetPublic)
 async def create_fleet(
     data: str = Form(...),  # JSON string from frontend
@@ -136,8 +128,7 @@ async def create_fleet(
 
     # Uniqueness checks
     if collection.find_one({"company_code": payload_obj.company_code}):
-        raise HTTPException(
-            status_code=400, detail="company_code already exists")
+        raise HTTPException(status_code=400, detail="company_code already exists")
     if collection.find_one({"contact_info.email": payload_obj.contact_info[0].email}):
         raise HTTPException(status_code=400, detail="email already exists")
 
@@ -176,7 +167,6 @@ async def create_fleet(
 
     return fleets(created)
 
-
 @router.post("/login")
 async def login_fleet(email: str = Body(...), password: str = Body(...)):
     """
@@ -188,30 +178,15 @@ async def login_fleet(email: str = Body(...), password: str = Body(...)):
     # Look for email inside contact_info
     fleet = collection.find_one({"contact_info.email": email})
     if not fleet:
-        raise HTTPException(
-            status_code=401, detail="Invalid email or password")
+        raise HTTPException(status_code=401, detail="Invalid email or password")
 
     # Verify hashed password
     if not verify_password(password, fleet["password"]):
-        raise HTTPException(
-            status_code=401, detail="Invalid email or password")
-
-    # Upgrade hash on-the-fly if needed
-    try:
-        if needs_update(fleet["password"]):
-            new_hash = hash_password(password)
-            collection.update_one({"_id": fleet["_id"]}, {
-                                  "$set": {"password": new_hash}})
-            # refresh fleet document for downstream use if needed
-            fleet = collection.find_one({"_id": fleet["_id"]})
-    except Exception:
-        # Non-fatal: continue login even if update fails
-        pass
+        raise HTTPException(status_code=401, detail="Invalid email or password")
 
     # Role check: only allow admin
     if fleet["role"] not in ["admin", "superadmin"]:
-        raise HTTPException(
-            status_code=403, detail="Fleet is not verified/approved")
+        raise HTTPException(status_code=403, detail="Fleet is not verified/approved")
 
     # Extract primary email from contact_info
     primary_email = None
@@ -235,35 +210,22 @@ async def login_fleet(email: str = Body(...), password: str = Body(...)):
         "fleet": fleet_data
     }
 
-
-@router.websocket("/ws/all")
-async def websocket_all_fleets(websocket: WebSocket):
+@router.get("/all")
+async def get_all_fleets():
     """
-    WebSocket endpoint to stream all fleets in real-time.
-    Excludes fleets with role 'superadmin'.
+    Fetch all fleets once (excluding superadmin).
     """
-    await fleet_all_manager.connect(websocket)
     collection = get_fleets_collection
-
-    try:
-        # Send initial fleet list
-        fleet_docs = collection.find({"role": {"$ne": "superadmin"}})
-        fleets_list = [
-            {
-                key: serialize_datetime(value) if isinstance(
-                    value, (datetime, ObjectId)) else value
-                for key, value in fleets(f).items()
-            } for f in fleet_docs
-        ]
-        await websocket.send_json({"fleets": fleets_list})
-
-        # Keep connection alive
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        fleet_all_manager.disconnect(websocket)
-        print("Client disconnected from /ws/all")
-
+    fleet_docs = collection.find({"role": {"$ne": "superadmin"}})
+    
+    fleets_list = [
+        {
+            key: serialize_datetime(value) if isinstance(value, (datetime, ObjectId)) else value
+            for key, value in fleets(f).items()
+        }
+        for f in fleet_docs
+    ]
+    return {"fleets": fleets_list}
 
 @router.websocket("/{fleet_id}/ws")
 async def websocket_fleet_details(websocket: WebSocket, fleet_id: str):
@@ -288,8 +250,7 @@ async def websocket_fleet_details(websocket: WebSocket, fleet_id: str):
         # Send initial fleet details
         fleet_data = fleets(fleet_doc)
         serialized_data = {
-            key: serialize_datetime(value) if isinstance(
-                value, (datetime, ObjectId)) else value
+            key: serialize_datetime(value) if isinstance(value, (datetime, ObjectId)) else value
             for key, value in fleet_data.items()
         }
         await websocket.send_json(serialized_data)
@@ -302,16 +263,13 @@ async def websocket_fleet_details(websocket: WebSocket, fleet_id: str):
             print(f"Client disconnected from fleet {fleet_id} details")
         except Exception as e:
             fleet_details_manager.disconnect(websocket, fleet_id)
-            print(
-                f"Error in fleet details WebSocket for fleet {fleet_id}: {e}")
+            print(f"Error in fleet details WebSocket for fleet {fleet_id}: {e}")
             await websocket.send_json({"error": str(e)})
             await websocket.close()
 
     except Exception as e:
-        print(
-            f"Unexpected error in fleet details WebSocket for fleet {fleet_id}: {e}")
+        print(f"Unexpected error in fleet details WebSocket for fleet {fleet_id}: {e}")
         await websocket.close()
-
 
 @router.websocket("/ws/count-fleets")
 async def websocket_count_fleets(websocket: WebSocket):
@@ -329,7 +287,6 @@ async def websocket_count_fleets(websocket: WebSocket):
     except Exception:
         fleet_count_manager.disconnect(websocket)
 
-
 @router.get("/{fleet_id}", response_model=FleetPublic)
 def get_fleet(fleet_id: str):
     """
@@ -340,7 +297,6 @@ def get_fleet(fleet_id: str):
     if not fleet_doc:
         raise HTTPException(status_code=404, detail="Fleet not found")
     return fleets(fleet_doc)
-
 
 @router.patch("/{fleet_id}", response_model=FleetPublic)
 async def update_fleet(fleet_id: str, payload: dict = Body(...)):
@@ -360,13 +316,11 @@ async def update_fleet(fleet_id: str, payload: dict = Body(...)):
             update_fields[field] = payload[field]
 
     if not update_fields:
-        raise HTTPException(
-            status_code=400, detail="No valid fields to update")
+        raise HTTPException(status_code=400, detail="No valid fields to update")
 
     update_fields["last_updated"] = datetime.utcnow()
 
-    result = collection.update_one(
-        {"_id": ObjectId(fleet_id)}, {"$set": update_fields})
+    result = collection.update_one({"_id": ObjectId(fleet_id)}, {"$set": update_fields})
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Fleet not found")
 
@@ -378,7 +332,6 @@ async def update_fleet(fleet_id: str, payload: dict = Body(...)):
     await broadcast_fleet_list()
 
     return fleets(updated)
-
 
 @router.delete("/{fleet_id}")
 async def delete_fleet(fleet_id: str):
@@ -396,7 +349,6 @@ async def delete_fleet(fleet_id: str):
     await broadcast_fleet_list()
 
     return {"message": "Fleet deleted"}
-
 
 @router.patch("/{fleet_id}/approve", dependencies=[Depends(super_admin_required)])
 async def approve_fleet(fleet_id: str):
@@ -431,7 +383,6 @@ async def approve_fleet(fleet_id: str):
         "fleet": fleets(updated_fleet)
     }
 
-
 @router.patch("/{fleet_id}/reject", dependencies=[Depends(super_admin_required)])
 async def reject_fleet(fleet_id: str):
     """
@@ -465,7 +416,6 @@ async def reject_fleet(fleet_id: str):
         "fleet": fleets(updated_fleet)
     }
 
-
 @router.get("/{fleet_id}/pdf/{filename}")
 async def get_fleet_pdf(fleet_id: str, filename: str):
     collection = get_fleets_collection
@@ -474,8 +424,7 @@ async def get_fleet_pdf(fleet_id: str, filename: str):
         raise HTTPException(status_code=404, detail="Fleet not found")
 
     pdf_files = fleet.get("pdf_files", [])
-    file_entry = next(
-        (f for f in pdf_files if f["filename"] == filename), None)
+    file_entry = next((f for f in pdf_files if f["filename"] == filename), None)
     if not file_entry:
         raise HTTPException(status_code=404, detail="PDF not found")
 
