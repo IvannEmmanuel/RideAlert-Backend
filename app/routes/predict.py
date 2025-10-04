@@ -232,13 +232,20 @@ async def predict(request: PredictionRequest):
         try:
             # Update the vehicle's location with corrected coordinates
             # Set the entire location object to handle cases where location might be null
+            # Build a robust filter: device_id as trimmed string, and (if valid) as ObjectId
+            dev_id = str(request.device_id).strip()
+            filter_query = {"$or": [{"device_id": dev_id}]}
+            if ObjectId.is_valid(dev_id):
+                filter_query["$or"].append({"device_id": ObjectId(dev_id)})
+
             update_result = db.vehicles.update_one(
-                {"device_id": ObjectId(request.device_id)},
+                filter_query,
                 {
                     "$set": {
+                        # Conform to Vehicle Location schema
                         "location": {
-                            "latitude": corrected_lat,
-                            "longitude": corrected_lng
+                            "latitude": float(corrected_lat),
+                            "longitude": float(corrected_lng)
                         }
                     }
                 }
@@ -246,7 +253,7 @@ async def predict(request: PredictionRequest):
 
             if update_result.matched_count > 0:
                 print(
-                    f"🚗 Vehicle {request.device_id} location updated: lat={corrected_lat:.6f}, lng={corrected_lng:.6f}")
+                    f"🚗 Vehicle {request.device_id} corrected location updated: lat={corrected_lat:.6f}, lng={corrected_lng:.6f}")
             else:
                 print(
                     f"⚠️ Warning: Vehicle {request.device_id} not found in vehicles collection")

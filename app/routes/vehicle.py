@@ -505,17 +505,17 @@ class IoTBoundForUpdate(BaseModel):
 
 
 def _map_key_to_bound_for(key: str):
-    k = (key or "").strip()
-    if k == '6':
+    k = (key or "").strip().upper()
+    if k == 'B':
         return "IGPIT"
-    if k == '7':
+    if k == 'C':
         return "BUGO"
     return None
 
 
 @router.post("/bound-for/device/{device_id}")
 async def update_bound_for_by_device(device_id: str, payload: IoTBoundForUpdate):
-    """Update a vehicle's bound_for using IoT keypad key ('6' or '7')."""
+    """Update a vehicle's bound_for using IoT keypad key ('B' or 'C')."""
     vehicle = vehicle_collection.find_one({"device_id": device_id})
     if not vehicle:
         raise HTTPException(
@@ -524,7 +524,7 @@ async def update_bound_for_by_device(device_id: str, payload: IoTBoundForUpdate)
     bound_for = _map_key_to_bound_for(payload.key)
     if not bound_for:
         raise HTTPException(
-            status_code=400, detail="Unsupported key. Use '6' for IGPIT or '7' for BUGO.")
+            status_code=400, detail="Unsupported key. Use 'B' for IGPIT or 'C' for BUGO.")
 
     vehicle_collection.update_one(
         {"_id": vehicle["_id"]},
@@ -557,8 +557,8 @@ async def iot_keypad_update(device_id: str, payload: IoTUnifiedUpdate):
     - 'A' -> STANDING (treated as AVAILABLE with status_detail)
     - '4' -> INACTIVE (treated as UNAVAILABLE with status_detail)
     - '5' -> HELP REQUESTED (notify admins)
-    - '6' -> BOUND FOR IGPIT
-    - '7' -> BOUND FOR BUGO
+    - 'B' -> BOUND FOR IGPIT
+    - 'C' -> BOUND FOR BUGO
     """
     vehicle = vehicle_collection.find_one({"device_id": device_id})
     if not vehicle:
@@ -626,7 +626,7 @@ async def iot_keypad_update(device_id: str, payload: IoTUnifiedUpdate):
             await broadcast_available_vehicle_list(fleet_id)
         return {"message": "Vehicle status updated", "status": status_value, "status_detail": detail}
 
-    # Bound for (6,7)
+    # Bound for (B,C)
     bound_for = _map_key_to_bound_for(k)
     if bound_for:
         vehicle_collection.update_one({"_id": vehicle["_id"]}, {
@@ -637,4 +637,4 @@ async def iot_keypad_update(device_id: str, payload: IoTUnifiedUpdate):
 
     # Unsupported
     raise HTTPException(
-        status_code=400, detail="Unsupported key. Use '1','2','A','4','5','6','7'.")
+        status_code=400, detail="Unsupported key. Use '1','2','A','4','5','B','C'.")

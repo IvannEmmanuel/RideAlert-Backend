@@ -11,6 +11,7 @@ class VehicleStatus(str, Enum):
     available = "available"
     unavailable = "unavailable"
     full = "full"
+    standing = "standing"
 
 # Pydantic model for vehicle location
 class Location(BaseModel):
