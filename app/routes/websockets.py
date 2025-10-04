@@ -303,6 +303,7 @@ async def all_vehicles_ws(websocket: WebSocket, fleet_id: str):
                     "status": vehicle.get("status", "unavailable"),
                     "route": vehicle.get("route", ""),
                     "driverName": vehicle.get("driverName", ""),
+                    "bound_for": vehicle.get("bound_for"),
                     "plate": vehicle.get("plate", "")
                 })
 
@@ -337,7 +338,8 @@ async def available_vehicles_ws(websocket: WebSocket, fleet_id: str):
                     "route": vehicle.get("route", ""),
                     "driverName": vehicle.get("driverName", ""),
                     "plate": vehicle.get("plate", ""),
-                    "status": vehicle.get("status", "unavailable")
+                    "status": vehicle.get("status", "unavailable"),
+                    "bound_for": vehicle.get("bound_for")
                 })
 
             await websocket.send_json(vehicles)
