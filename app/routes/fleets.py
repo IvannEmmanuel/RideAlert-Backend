@@ -41,7 +41,7 @@ def serialize_datetime(obj):
 
 async def broadcast_fleet_list():
     """Helper function to broadcast the full fleet list to all connected /ws/all clients."""
-    collection = get_fleets_collection()
+    collection = get_fleets_collection
     fleet_docs = collection.find({"role": {"$ne": "superadmin"}})
     fleets_list = [
         {
@@ -53,7 +53,7 @@ async def broadcast_fleet_list():
 
 async def broadcast_fleet_details(fleet_id: str):
     """Broadcast the details of a specific fleet to connected /fleet_id/ws clients."""
-    collection = get_fleets_collection()
+    collection = get_fleets_collection
     fleet_doc = collection.find_one({"_id": ObjectId(fleet_id)})
     if fleet_doc:
         fleet_data = fleets(fleet_doc)
@@ -112,6 +112,36 @@ async def broadcast_fleet_details(fleet_id: str):
 
 #     return fleets(created)
 
+@router.websocket("/ws/all")
+async def websocket_all_fleets(websocket: WebSocket):
+    """
+    WebSocket endpoint to stream all fleets in real-time.
+    """
+    await fleet_all_manager.connect(websocket)
+    
+    try:
+        # Send initial fleet list right after connect
+        collection = get_fleets_collection
+        fleet_docs = collection.find({"role": {"$ne": "superadmin"}})
+        fleets_list = [
+            {
+                key: serialize_datetime(value) if isinstance(value, (datetime, ObjectId)) else value
+                for key, value in fleets(f).items()
+            } for f in fleet_docs
+        ]
+        await websocket.send_json({"fleets": fleets_list})
+
+        # Keep connection alive
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        fleet_all_manager.disconnect(websocket)
+        print("Client disconnected from all fleets WebSocket")
+    except Exception as e:
+        fleet_all_manager.disconnect(websocket)
+        print(f"Error in all fleets WebSocket: {e}")
+        await websocket.close()
+
 #newly added create
 @router.post("/", response_model=FleetPublic)
 async def create_fleet(
@@ -150,8 +180,8 @@ async def create_fleet(
         "last_updated": now,
         "role": "unverified",
         "is_active": True,
-        "plan_price": payload_obj.plan_price,
-        "max_vehicles": payload_obj.max_vehicles,
+        "plan_price": plan_prices[payload_obj.subscription_plan],  # ✅ Use the mapping
+        "max_vehicles": max_vehicles_limits[payload_obj.subscription_plan],  # ✅ Use the mapping
         "password": hash_password(payload_obj.password),
         "pdf_files": pdf_files
     })

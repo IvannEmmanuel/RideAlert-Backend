@@ -6,6 +6,7 @@ from app.routes.websockets import ws_router
 from app.routes.notifications_router import router as notifications_router
 from app.routes.iot_devices import router as iot_router
 from app.routes.fleets import router as fleets_router
+from app.routes.email_verification import router as email_router
 from app.routes import predict
 from app.routes import models
 from fastapi.middleware.cors import CORSMiddleware
@@ -66,10 +67,11 @@ app.add_middleware(
                    "https://ride-alert-admin-panel.vercel.app",
                    "http://localhost:5174",
                    "http://localhost:8081",
-                   "*"],
+                   "https://ridealertadminpanel.onrender.com"],
     allow_credentials=True,
     allow_methods=["*"],  # Allow all methods, adjust as needed
     allow_headers=["*"],  # Allow all headers, adjust as needed
+    expose_headers=["*"]  # Add this line
 )
 
 app.include_router(user.router)
@@ -80,6 +82,7 @@ app.include_router(predict.router)
 app.include_router(models.router)
 app.include_router(iot_router)
 app.include_router(fleets_router)
+app.include_router(email_router)
 # Include other routers as needed
 
 
