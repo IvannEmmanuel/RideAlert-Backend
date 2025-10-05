@@ -1,8 +1,7 @@
-import smtplib
 import os
-from email.message import EmailMessage
 import secrets
 import time
+import requests
 from typing import Dict, Optional
 
 # In-memory store for OTPs
@@ -10,15 +9,12 @@ otp_store: Dict[str, dict] = {}
 
 class EmailSender:
     def __init__(self):
-        self.smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-        self.smtp_port = int(os.getenv("SMTP_PORT", "587"))
-        self.email_user = os.getenv("EMAIL_USER")
-        self.email_password = os.getenv("EMAIL_PASSWORD")
+        self.brevo_api_key = os.getenv("BREVO_API_KEY")
+        self.brevo_from_email = os.getenv("BREVO_FROM_EMAIL", "noreply@ridealert.com")
         
-        print(f"🔧 Email Config Loaded:")
-        print(f"   User: {self.email_user}")
-        print(f"   Password: {'*' * len(self.email_password) if self.email_password else 'NOT SET'}")
-        print(f"   Server: {self.smtp_server}:{self.smtp_port}")
+        print(f"🔧 Brevo Config Loaded:")
+        print(f"   From Email: {self.brevo_from_email}")
+        print(f"   API Key: {'*' * len(self.brevo_api_key) if self.brevo_api_key else 'NOT SET'}")
         
     def generate_otp(self) -> str:
         """Generate a 6-digit OTP"""
@@ -49,87 +45,220 @@ class EmailSender:
         return False
     
     def send_verification_email(self, email: str, otp: str) -> bool:
-        """Send verification email with OTP"""
         try:
             print(f"📧 Attempting to send email to: {email}")
+            print(f"   From: {self.brevo_from_email}")
             
             # Validate configuration
-            if not self.email_user or not self.email_password:
-                error_msg = "Email configuration incomplete - check EMAIL_USER and EMAIL_PASSWORD"
+            if not self.brevo_api_key:
+                error_msg = "Brevo configuration incomplete - check BREVO_API_KEY"
                 print(f"❌ {error_msg}")
                 raise ValueError(error_msg)
             
-            # Create message
-            msg = EmailMessage()
-            msg['From'] = self.email_user
-            msg['To'] = email
-            msg['Subject'] = "Verify Your Email - RideAlert"
+            # Brevo API configuration
+            url = "https://api.brevo.com/v3/smtp/email"
+            headers = {
+                "accept": "application/json",
+                "api-key": self.brevo_api_key,
+                "content-type": "application/json"
+            }
             
-            # Email content
+            # Improved email content with better spam avoidance
             html_content = f"""
             <!DOCTYPE html>
             <html>
             <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Verify Your RideAlert Account</title>
                 <style>
-                    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-                    .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-                    .header {{ background: #2563eb; color: white; padding: 20px; text-align: center; }}
-                    .content {{ background: #f8fafc; padding: 30px; }}
-                    .otp {{ font-size: 32px; font-weight: bold; color: #2563eb; text-align: center; margin: 20px 0; }}
-                    .footer {{ text-align: center; padding: 20px; color: #64748b; font-size: 12px; }}
+                    body {{ 
+                        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+                        line-height: 1.6; 
+                        color: #333333; 
+                        margin: 0;
+                        padding: 0;
+                        background-color: #f8f9fa;
+                        -webkit-font-smoothing: antialiased;
+                    }}
+                    .container {{ 
+                        max-width: 600px; 
+                        margin: 0 auto; 
+                        background: #ffffff;
+                        border-radius: 12px;
+                        overflow: hidden;
+                        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                    }}
+                    .header {{ 
+                        background: linear-gradient(135deg, #2563eb, #1d4ed8); 
+                        color: white; 
+                        padding: 40px 30px; 
+                        text-align: center; 
+                    }}
+                    .header h1 {{
+                        margin: 0 0 10px 0;
+                        font-size: 32px;
+                        font-weight: 700;
+                    }}
+                    .header p {{
+                        margin: 0;
+                        opacity: 0.9;
+                        font-size: 16px;
+                    }}
+                    .content {{ 
+                        padding: 40px 30px; 
+                        background: #ffffff;
+                    }}
+                    .otp-container {{
+                        text-align: center;
+                        margin: 30px 0;
+                    }}
+                    .otp {{ 
+                        font-size: 48px; 
+                        font-weight: 800; 
+                        color: #2563eb; 
+                        letter-spacing: 12px;
+                        background: #f8fafc;
+                        padding: 25px;
+                        border-radius: 12px;
+                        border: 3px solid #e2e8f0;
+                        display: inline-block;
+                        font-family: 'Courier New', monospace;
+                    }}
+                    .footer {{ 
+                        text-align: center; 
+                        padding: 30px; 
+                        color: #64748b; 
+                        font-size: 13px;
+                        background: #f8f9fa;
+                        border-top: 1px solid #e2e8f0;
+                    }}
+                    .note {{
+                        background: #fff7ed;
+                        border-left: 4px solid #f97316;
+                        padding: 20px;
+                        margin: 25px 0;
+                        border-radius: 8px;
+                        font-size: 14px;
+                    }}
+                    .button {{
+                        display: inline-block;
+                        background: #2563eb;
+                        color: white;
+                        padding: 12px 30px;
+                        text-decoration: none;
+                        border-radius: 6px;
+                        font-weight: 600;
+                        margin: 10px 0;
+                    }}
+                    @media only screen and (max-width: 600px) {{
+                        .container {{
+                            margin: 10px;
+                        }}
+                        .otp {{
+                            font-size: 36px;
+                            letter-spacing: 8px;
+                            padding: 20px;
+                        }}
+                    }}
                 </style>
             </head>
             <body>
                 <div class="container">
                     <div class="header">
-                        <h1>RideAlert</h1>
+                        <h1>🚗 RideAlert</h1>
                         <p>Vehicle Tracking & Management System</p>
                     </div>
                     <div class="content">
-                        <h2>Verify Your Email Address</h2>
-                        <p>Thank you for registering with RideAlert. Use the verification code below:</p>
-                        <div class="otp">{otp}</div>
-                        <p><strong>This code will expire in 10 minutes.</strong></p>
+                        <h2 style="color: #1e293b; margin-top: 0;">Email Verification Required</h2>
+                        
+                        <p>Hello,</p>
+                        
+                        <p>You're just one step away from accessing your RideAlert account. We received a request to verify this email address for your account.</p>
+                        
+                        <div class="otp-container">
+                            <div class="otp">{otp}</div>
+                        </div>
+                        
+                        <div class="note">
+                            <p style="margin: 0; color: #9a3412;">
+                                <strong>⏰ Security Notice:</strong> This verification code will expire in <strong>10 minutes</strong> for your protection.
+                            </p>
+                        </div>
+                        
+                        <p>If you did not request this verification, please disregard this email. Your account security is important to us.</p>
+                        
+                        <p>Need help? Contact our support team for assistance.</p>
                     </div>
                     <div class="footer">
-                        <p>&copy; 2024 RideAlert. All rights reserved.</p>
+                        <p style="margin: 0 0 10px 0;">
+                            <strong>RideAlert Team</strong><br>
+                            Vehicle Tracking & Management Solutions
+                        </p>
+                        <p style="margin: 0; font-size: 12px; opacity: 0.7;">
+                            This is an automated message. Please do not reply to this email.<br>
+                            &copy; 2024 RideAlert. All rights reserved.
+                        </p>
                     </div>
                 </div>
             </body>
             </html>
             """
             
-            msg.set_content(f"Your RideAlert verification code is: {otp}. This code expires in 10 minutes.")
-            msg.add_alternative(html_content, subtype='html')
+            # Brevo payload with improved settings
+            payload = {
+                "sender": {
+                    "name": "RideAlert Verification",
+                    "email": self.brevo_from_email
+                },
+                "to": [
+                    {
+                        "email": email,
+                        "name": email.split('@')[0]
+                    }
+                ],
+                "subject": "Verify Your RideAlert Account - Security Code Inside",
+                "htmlContent": html_content,
+                "textContent": f"""RIDEALERT ACCOUNT VERIFICATION
+
+    Hello,
+
+    To complete your RideAlert account setup, please use the verification code below:
+
+    VERIFICATION CODE: {otp}
+
+    This code expires in 10 minutes for security reasons.
+
+    If you didn't request this verification, please ignore this email.
+
+    Need help? Contact our support team.
+
+    © 2024 RideAlert. All rights reserved.
+    """,
+                "tags": ["verification", "authentication"]
+            }
             
-            print(f"🔗 Connecting to {self.smtp_server}:{self.smtp_port}...")
+            print(f"🔗 Sending email via Brevo API...")
             
-            # Send email with detailed error handling
-            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                server.set_debuglevel(1)  # This will print SMTP conversation
-                print("🔐 Starting TLS...")
-                server.starttls()
+            # Send email using Brevo API
+            response = requests.post(url, headers=headers, json=payload)
+            
+            # Enhanced logging
+            print(f"📨 Brevo API Response:")
+            print(f"   Status Code: {response.status_code}")
+            if response.status_code != 201:
+                print(f"   Error Details: {response.text}")
+            
+            if response.status_code == 201:
+                response_data = response.json()
+                message_id = response_data.get('messageId', 'Unknown')
+                print(f"✅ Email accepted by Brevo! Message ID: {message_id}")
+                print(f"💡 Note: Using Gmail as sender may affect deliverability")
+                return True
+            else:
+                print(f"❌ Brevo API Error: {response.status_code}")
+                return False
                 
-                print(f"👤 Logging in as: {self.email_user}")
-                server.login(self.email_user, self.email_password)
-                
-                print(f"📤 Sending email...")
-                server.send_message(msg)
-            
-            print(f"✅ Email sent successfully to {email}")
-            return True
-            
-        except smtplib.SMTPAuthenticationError as e:
-            print(f"❌ SMTP Authentication Failed: {e}")
-            print("   This usually means:")
-            print("   1. Wrong email or password")
-            print("   2. 2FA not enabled on Gmail")
-            print("   3. Using regular password instead of App Password")
-            print("   4. App Password not generated for 'Mail'")
-            return False
-        except smtplib.SMTPException as e:
-            print(f"❌ SMTP Error: {e}")
-            return False
         except Exception as e:
             print(f"❌ Unexpected error: {e}")
             import traceback
