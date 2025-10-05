@@ -23,8 +23,8 @@ async def send_verification_email(request: SendVerificationRequest):
             detail="Too many verification attempts. Please try again in 15 minutes."
         )
     
-    # Check if email configuration is set
-    if not email_sender.email_user or not email_sender.email_password:
+    # ✅ FIXED: Check Brevo configuration
+    if not email_sender.brevo_api_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Email service is not configured. Please contact administrator."
@@ -48,8 +48,9 @@ async def send_verification_email(request: SendVerificationRequest):
         
         # For development - include OTP in response (remove in production)
         debug_info = {}
-        if os.getenv("NODE_ENV") == "development" or os.getenv("DEBUG") == "true":
+        if os.getenv("DEBUG", "").lower() == "true" or os.getenv("NODE_ENV") == "development":
             debug_info["debug_otp"] = otp
+            print(f"🔓 DEBUG MODE: OTP for {request.email} is {otp}")
         
         return {
             "message": "Verification code sent successfully",
