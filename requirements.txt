@@ -4,9 +4,9 @@ pymongo
 email-validator
 python-dotenv
 pydantic
-bcrypt
+bcrypt==4.0.1
 python-jose
-passlib[bcrypt]
+passlib==1.7.4
 firebase-admin
 # ML dependencies
 scikit-learn==1.6.1
