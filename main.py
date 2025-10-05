@@ -66,7 +66,8 @@ app.add_middleware(
     allow_origins=["http://localhost:5173",
                    "https://ride-alert-admin-panel.vercel.app",
                    "http://localhost:5174",
-                   "http://localhost:8081"],
+                   "http://localhost:8081",
+                   "https://ridealertadminpanel.onrender.com"],
     allow_credentials=True,
     allow_methods=["*"],  # Allow all methods, adjust as needed
     allow_headers=["*"],  # Allow all headers, adjust as needed
