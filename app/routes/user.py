@@ -1,12 +1,15 @@
 from fastapi import APIRouter, HTTPException, Depends, Body, WebSocket, WebSocketDisconnect
 from app.schemas.user import UserCreate, UserInDB, UserLogin, Location
+from app.dependencies.auth import get_current_user
+from app.schemas.refresh_token import TokenRefreshRequest
 from app.database import user_collection, vehicle_collection
+from app.utils.auth_token import verify_access_token
 from app.models.user import user_helper
 from app.schemas.user import Location as UserLocation
 from bson import ObjectId
 from pydantic import BaseModel, ValidationError
 from app.utils.pasword_hashing import hash_password, verify_password
-from app.utils.auth_token import create_access_token
+from app.utils.auth_token import create_access_token, create_refresh_token
 from fastapi.responses import JSONResponse
 from app.dependencies.roles import admin_required, user_required, user_or_admin_required, super_admin_required
 from app.utils.ws_manager import user_count_manager
@@ -37,6 +40,31 @@ async def create_user(user: UserCreate):
 
     return user_helper(created_user)
 
+# ✅ KEEP THIS ONE ABOVE THE GENERIC /{user_id} route
+@router.get("/me")
+def get_me(current_user: dict = Depends(get_current_user)):
+    user_id = current_user.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Invalid user payload")
+
+    user = user_collection.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {
+        "id": str(user["_id"]),
+        "first_name": user.get("first_name"),
+        "last_name": user.get("last_name"),
+        "email": user.get("email"),
+        "gender": user.get("gender"),
+        "address": user.get("address"),
+        "role": user.get("role"),
+        "location": user.get("location", {}),
+        "fleet_id": user.get("fleet_id"),
+        "notify": user.get("notify", False),
+        "selected_vehicle_id": user.get("selected_vehicle_id"),
+    }
+
 @router.get("/{user_id}", response_model=UserInDB)
 def get_user(user_id: str, current_user: dict = Depends(user_or_admin_required)):
     user = user_collection.find_one({"_id": ObjectId(user_id)})
@@ -58,9 +86,11 @@ def login_user(login_data: UserLogin):
     }
 
     access_token = create_access_token(token_data)
+    refresh_token = create_refresh_token(token_data)
 
     return JSONResponse(content={
         "access_token": access_token,
+        "refresh_token": refresh_token,
         "user": {
             "id": str(user["_id"]),
             "first_name": user.get("first_name"),
@@ -75,6 +105,20 @@ def login_user(login_data: UserLogin):
             "selected_vehicle_id": user.get("selected_vehicle_id")  # ✅ Include selected vehicle
         }
     })
+
+@router.post("/refresh-token")
+def refresh_token(request: TokenRefreshRequest):
+    payload = verify_access_token(request.refresh_token)
+    if not payload:
+        raise HTTPException(401, "Invalid or expired refresh token")
+
+    new_access_token = create_access_token({
+        "user_id": payload["user_id"],
+        "email": payload["email"],
+        "role": payload["role"]
+    })
+    
+    return JSONResponse({"access_token": new_access_token})
 
 @router.post("/location")
 async def update_user_location_http(
