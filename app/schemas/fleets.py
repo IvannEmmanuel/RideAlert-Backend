@@ -32,6 +32,7 @@ class FleetBase(BaseModel):
     role: FleetRole = FleetRole.unverified
     last_updated: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    max_vehicles: str
 
     @property
     def plan_price(self) -> int:
