@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, Body, WebSocket, WebSocke
 from app.schemas.user import UserCreate, UserInDB, UserLogin, Location
 from app.dependencies.auth import get_current_user
 from app.schemas.refresh_token import TokenRefreshRequest
-from app.database import user_collection, vehicle_collection
+from app.database import user_collection, vehicle_collection, get_fleets_collection
 from app.utils.auth_token import verify_access_token
 from app.models.user import user_helper
 from app.schemas.user import Location as UserLocation
@@ -78,6 +78,13 @@ def login_user(login_data: UserLogin):
 
     if not user or not verify_password(login_data.password, user["password"]):
         raise HTTPException(status_code=401, detail="email or password is invalid")
+    
+    company_name = None
+    if "fleet_id" in user:
+        fleet_collection = get_fleets_collection
+        fleet = fleet_collection.find_one({"_id": ObjectId(user["fleet_id"])})
+        if fleet:
+            company_name = fleet.get("company_name")
 
     token_data = {
         "user_id": str(user["_id"]),
@@ -102,7 +109,8 @@ def login_user(login_data: UserLogin):
             "location": user.get("location", {}),
             "fleet_id": user.get("fleet_id"),
             "notify": user.get("notify", False),  # ✅ Include notify status
-            "selected_vehicle_id": user.get("selected_vehicle_id")  # ✅ Include selected vehicle
+            "selected_vehicle_id": user.get("selected_vehicle_id"),  # ✅ Include selected vehicle
+            "company_name": company_name  # ✅ added here
         }
     })
 
