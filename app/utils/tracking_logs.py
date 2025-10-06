@@ -3,7 +3,7 @@ from bson import ObjectId
 import time
 
 
-def insert_gps_log(db, device_id: str, fleet_id: str, ml_request_data: dict, corrected_coordinates: dict):
+def insert_gps_log(db, device_id: str, fleet_id: str, ml_request_data: dict, corrected_coordinates: dict, ecef_coordinates: dict | None = None):
     """
     Insert ML prediction log into MongoDB Atlas with complete sensor data structure
 
@@ -57,6 +57,14 @@ def insert_gps_log(db, device_id: str, fleet_id: str, ml_request_data: dict, cor
             "latitude": 8.585123,         # Raw GPS + ML correction
             "longitude": 124.769874       # Raw GPS + ML correction
             # Note: Altitude not corrected (use raw_altitude from iot_payload)
+        },
+
+        # ECEF coordinates actually used by the backend for WLS, provided here
+        # even if the IoT payload didn't include them (payload fields may be null)
+        "wls_ecef": {
+            "WlsPositionXEcefMeters": 1100.0,
+            "WlsPositionYEcefMeters": 2200.0,
+            "WlsPositionZEcefMeters": 3300.0
         },
 
         "timestamp": 1724717852000        # Milliseconds since epoch
@@ -118,6 +126,14 @@ def insert_gps_log(db, device_id: str, fleet_id: str, ml_request_data: dict, cor
             # ML-corrected longitude
             "longitude": corrected_coordinates["longitude"]
             # Note: altitude is not corrected by ML, use original from iot_payload
+        },
+
+        # ECEF coordinates actually used by backend (computed from raw lat/lon/alt or provided)
+        # Included for analysis and retraining; raw payload fields may be null by design
+        "wls_ecef": {
+            "WlsPositionXEcefMeters": (ecef_coordinates or {}).get("WlsPositionXEcefMeters"),
+            "WlsPositionYEcefMeters": (ecef_coordinates or {}).get("WlsPositionYEcefMeters"),
+            "WlsPositionZEcefMeters": (ecef_coordinates or {}).get("WlsPositionZEcefMeters"),
         },
 
         "timestamp": timestamp_ms  # Timestamp in milliseconds

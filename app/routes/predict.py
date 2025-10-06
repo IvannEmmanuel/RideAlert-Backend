@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, root_validator
 from app.utils.background_loader import background_loader
 from app.utils.tracking_logs import insert_gps_log
 from app.database import db
@@ -57,6 +57,17 @@ class PredictionRequest(BaseModel):
     class Config:
         # Allow either field name ('Speed') or alias ('speed') in input payloads
         allow_population_by_field_name = True
+
+    # Accept capitalized keys from devices (e.g., "Speed" or "SpeedMps") by normalizing
+    @root_validator(pre=True)
+    def normalize_speed_keys(cls, values):
+        # Map "Speed" -> "speed" if alias not present
+        if "speed" not in values and "Speed" in values:
+            values["speed"] = values["Speed"]
+        # Map "SpeedMps" -> "speedMps" if alias not present
+        if "speedMps" not in values and "SpeedMps" in values:
+            values["speedMps"] = values["SpeedMps"]
+        return values
 
 
 def convert_latlon_to_ecef(latitude: float, longitude: float, altitude: float):
@@ -300,6 +311,17 @@ async def predict(request: PredictionRequest):
 
             # Convert request to dict using aliases to store the original IoT payload (e.g., speedMps)
             ml_request_data = request.dict(by_alias=True)
+            # Copy ECEF values into the iot_payload for full self-containment
+            ml_request_data["WlsPositionXEcefMeters"] = wls_x
+            ml_request_data["WlsPositionYEcefMeters"] = wls_y
+            ml_request_data["WlsPositionZEcefMeters"] = wls_z
+
+            # Prepare ECEF coordinates used by backend for logging
+            ecef_used = {
+                "WlsPositionXEcefMeters": wls_x,
+                "WlsPositionYEcefMeters": wls_y,
+                "WlsPositionZEcefMeters": wls_z,
+            }
 
             # Insert comprehensive tracking log for this SUCCESSFUL prediction
             log_id = insert_gps_log(
@@ -307,7 +329,8 @@ async def predict(request: PredictionRequest):
                 device_id=request.device_id,
                 fleet_id=request.fleet_id,
                 ml_request_data=ml_request_data,
-                corrected_coordinates=corrected_coordinates
+                corrected_coordinates=corrected_coordinates,
+                ecef_coordinates=ecef_used
             )
 
             print(f"✅ Successful ML prediction logged with ID: {log_id}")
