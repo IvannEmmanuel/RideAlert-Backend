@@ -33,7 +33,7 @@ def insert_gps_log(db, device_id: str, fleet_id: str, ml_request_data: dict, cor
         "_id": ObjectId("..."),
         "device_id": "iot_device_001",
         "fleet_id": "fleet_001",
-        "speed": 10.5,               # Top-level for easy querying
+        "SpeedMps": 3.47,            # Top-level normalized speed in meters/second for ML
 
         "iot_payload": {             # Complete NEO-6M GPS payload - ALL sensor data
             "fleet_id": "fleet_001",     # Fleet ID (included in IoT payload)
@@ -78,24 +78,35 @@ def insert_gps_log(db, device_id: str, fleet_id: str, ml_request_data: dict, cor
     raw_longitude = ml_request_data.get("raw_longitude")
     raw_altitude = ml_request_data.get("raw_altitude")
 
-    # Extract speed (support both 'Speed' and 'speed' keys)
-    speed_value = ml_request_data.get("Speed")
-    if speed_value is None:
-        speed_value = ml_request_data.get("speed")
-    # Try to normalize to float if possible
-    try:
-        if speed_value is not None:
-            speed_value = float(speed_value)
-    except (ValueError, TypeError):
-        # Leave as-is if it cannot be converted; optional field
-        pass
+    # Determine top-level speed in meters per second (speed_mps)
+    speed_mps = None
+    # Prefer native meters-per-second field if present in payload
+    if ml_request_data.get("speedMps") is not None:
+        try:
+            speed_mps = float(ml_request_data.get("speedMps"))
+        except (ValueError, TypeError):
+            speed_mps = None
+    # Fallback: legacy 'Speed' (from model input) or 'speed' (kph) -> convert to m/s
+    if speed_mps is None:
+        legacy_speed = ml_request_data.get("Speed")
+        if legacy_speed is None:
+            legacy_speed = ml_request_data.get("speed")
+        try:
+            if legacy_speed is not None:
+                speed_mps = float(legacy_speed) / 3.6
+        except (ValueError, TypeError):
+            speed_mps = None
+    # Default to 0.0 if missing
+    if speed_mps is None:
+        speed_mps = 0.0
 
     # Build the enhanced log entry with complete IoT payload and only essential derived data
     log_entry = {
         "_id": ObjectId(),  # MongoDB will auto-generate if not provided
         "device_id": device_id,
         "fleet_id": fleet_id,
-        "speed": speed_value,  # Top-level speed for easy querying/aggregation
+        # Top-level normalized speed in meters per second for easy querying/aggregation
+        "SpeedMps": speed_mps,
 
         # Complete IoT payload - raw data as received from the IoT device
         "iot_payload": ml_request_data,  # Full original payload for complete traceability
