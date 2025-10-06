@@ -41,6 +41,6 @@ class VehicleTrackResponse(BaseModel):
     route: str
     driverName: str
     plate: str
-    device_id: str
+    device_id: Optional[str] = None
     fleet_id: str
-    bound_for: str
+    bound_for: Optional[str] = None

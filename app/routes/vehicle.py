@@ -209,7 +209,10 @@ def track_vehicle(id: str, current_user: dict = Depends(user_or_admin_required))
         status=VehicleStatus(vehicle["status"]),
         route=vehicle.get("route", ""),
         driverName=vehicle.get("driverName", ""),
-        plate=vehicle.get("plate", "")
+        plate=vehicle.get("plate", ""),
+        device_id=vehicle.get("device_id"),  # ✅ ADD THIS
+        fleet_id=str(vehicle.get("fleet_id", "")),  # ✅ ADD THIS
+        bound_for=vehicle.get("bound_for")  # ✅ ADD THIS
     )
 
 # ADDED TO WEBSOCKET
