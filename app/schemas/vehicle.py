@@ -13,6 +13,12 @@ class VehicleStatus(str, Enum):
     full = "full"
     standing = "standing"
 
+class VehicleStatusDetails(str, Enum):
+    available = "available"
+    unavailable = "unavailable"
+    full = "full"
+    standing = "standing"
+
 # Pydantic model for vehicle location
 class Location(BaseModel):
     latitude: float
@@ -24,6 +30,7 @@ class VehicleBase(BaseModel):
     capacity: int
     available_seats: int
     status: VehicleStatus
+    status_details: Optional[VehicleStatusDetails] = None
     route: str
     driverName: str
     plate: str
@@ -38,6 +45,7 @@ class VehicleTrackResponse(BaseModel):
     location: Location
     available_seats: int
     status: VehicleStatus
+    status_details: VehicleStatusDetails
     route: str
     driverName: str
     plate: str

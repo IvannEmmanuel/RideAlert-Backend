@@ -46,7 +46,7 @@ async def broadcast_available_vehicle_list(fleet_id: str):
     """Broadcast the list of available vehicles with valid locations for a specific fleet_id."""
     query = {
         "fleet_id": fleet_id,
-        "status": "available",
+         "status": {"$in": ["available", "full"]},
         "location.latitude": {"$ne": None},
         "location.longitude": {"$ne": None}
     }
@@ -58,7 +58,9 @@ async def broadcast_available_vehicle_list(fleet_id: str):
             "route": vehicle.get("route", ""),
             "driverName": vehicle.get("driverName", ""),
             "plate": vehicle.get("plate", ""),
-            "status": vehicle.get("status", "unavailable")
+            "status": vehicle.get("status", "unavailable"),
+            "bound_for": vehicle.get("bound_for"),
+            "status_details": vehicle.get("status_details")
         }
         for vehicle in vehicle_collection.find(query)
     ]
@@ -289,43 +291,44 @@ async def websocket_count_vehicles(websocket: WebSocket):
         vehicle_count_manager.disconnect(websocket)
 
 
-@router.websocket("/ws/vehicles/available/{fleet_id}")
-async def available_vehicles_ws(websocket: WebSocket, fleet_id: str):
-    """Stream only available vehicles that have a location"""
-    await vehicle_all_manager.connect(websocket, fleet_id)
-    try:
-        # Send initial list of available vehicles
-        query = {
-            "fleet_id": fleet_id,
-            "status": "available",
-            "location.latitude": {"$ne": None},
-            "location.longitude": {"$ne": None}
-        }
-        vehicles = [
-            {
-                "id": str(vehicle["_id"]),
-                "location": vehicle.get("location"),
-                "available_seats": vehicle.get("available_seats", 0),
-                "route": vehicle.get("route", ""),
-                "driverName": vehicle.get("driverName", ""),
-                "plate": vehicle.get("plate", ""),
-                "status": vehicle.get("status", "unavailable")
-            }
-            for vehicle in vehicle_collection.find(query)
-        ]
-        await websocket.send_json({"vehicles": vehicles})
+# @router.websocket("/ws/vehicles/available/{fleet_id}")
+# async def available_vehicles_ws(websocket: WebSocket, fleet_id: str):
+#     """Stream only available vehicles that have a location"""
+#     await vehicle_all_manager.connect(websocket, fleet_id)
+#     try:
+#         # Send initial list of available vehicles
+#         query = {
+#             "fleet_id": fleet_id,
+#             "status": {"$in": ["available", "full"]},
+#             "location.latitude": {"$ne": None},
+#             "location.longitude": {"$ne": None}
+#         }
+#         vehicles = [
+#             {
+#                 "id": str(vehicle["_id"]),
+#                 "location": vehicle.get("location"),
+#                 "available_seats": vehicle.get("available_seats", 0),
+#                 "route": vehicle.get("route", ""),
+#                 "driverName": vehicle.get("driverName", ""),
+#                 "plate": vehicle.get("plate", ""),
+#                 "status": vehicle.get("status", "unavailable"),
+#                 "bound_for": vehicle.get("bound_for")
+#             }
+#             for vehicle in vehicle_collection.find(query)
+#         ]
+#         await websocket.send_json({"vehicles": vehicles})
 
-        while True:
-            # Keep connection alive
-            await websocket.receive_text()
+#         while True:
+#             # Keep connection alive
+#             await websocket.receive_text()
 
-    except WebSocketDisconnect:
-        vehicle_all_manager.disconnect(websocket, fleet_id)
-        print(f"Available vehicle stream for fleet {fleet_id} disconnected")
-    except Exception as e:
-        vehicle_all_manager.disconnect(websocket, fleet_id)
-        print(
-            f"Error in available vehicles WebSocket for fleet {fleet_id}: {e}")
+#     except WebSocketDisconnect:
+#         vehicle_all_manager.disconnect(websocket, fleet_id)
+#         print(f"Available vehicle stream for fleet {fleet_id} disconnected")
+#     except Exception as e:
+#         vehicle_all_manager.disconnect(websocket, fleet_id)
+#         print(
+#             f"Error in available vehicles WebSocket for fleet {fleet_id}: {e}")
 
 # NEWLY ADDED
 

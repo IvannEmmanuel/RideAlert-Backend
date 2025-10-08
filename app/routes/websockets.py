@@ -325,7 +325,7 @@ async def available_vehicles_ws(websocket: WebSocket, fleet_id: str):
             # Query: only available vehicles with non-null latitude and longitude
             query = {
                 "fleet_id": fleet_id,
-                "status": "available",
+                "status": {"$in": ["available", "full"]},
                 "location.latitude": {"$ne": None},
                 "location.longitude": {"$ne": None}
             }
@@ -339,7 +339,8 @@ async def available_vehicles_ws(websocket: WebSocket, fleet_id: str):
                     "driverName": vehicle.get("driverName", ""),
                     "plate": vehicle.get("plate", ""),
                     "status": vehicle.get("status", "unavailable"),
-                    "bound_for": vehicle.get("bound_for")
+                    "bound_for": vehicle.get("bound_for"),
+                    "status_details": vehicle.get("status_detail")
                 })
 
             await websocket.send_json(vehicles)
