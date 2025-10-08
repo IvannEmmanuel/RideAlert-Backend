@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, root_validator
 from app.utils.background_loader import background_loader
 from app.utils.tracking_logs import insert_gps_log
 from app.database import db
@@ -32,8 +32,12 @@ class PredictionRequest(BaseModel):
     BiasX: float
     BiasY: float
     BiasZ: float
-    # Accept IoT payload key 'speed' but expose field name 'Speed' to keep ML feature names consistent
-    Speed: float = Field(..., alias="speed")
+    # New: accept speed in meters per second from IoT as 'speedMps'.
+    # For backward compatibility, still accept legacy 'speed' (kph) via alias to Speed.
+    # We'll normalize to m/s for the ML feature 'Speed'.
+    SpeedMps: Optional[float] = Field(None, alias="speedMps")
+    # Legacy kph input; optional now. If provided, we'll convert to m/s.
+    Speed: Optional[float] = Field(None, alias="speed")
 
     # Option 1: Provide WLS ECEF coordinates directly (existing format)
     WlsPositionXEcefMeters: Optional[float] = None
@@ -53,6 +57,17 @@ class PredictionRequest(BaseModel):
     class Config:
         # Allow either field name ('Speed') or alias ('speed') in input payloads
         allow_population_by_field_name = True
+
+    # Accept capitalized keys from devices (e.g., "Speed" or "SpeedMps") by normalizing
+    @root_validator(pre=True)
+    def normalize_speed_keys(cls, values):
+        # Map "Speed" -> "speed" if alias not present
+        if "speed" not in values and "Speed" in values:
+            values["speed"] = values["Speed"]
+        # Map "SpeedMps" -> "speedMps" if alias not present
+        if "speedMps" not in values and "SpeedMps" in values:
+            values["speedMps"] = values["SpeedMps"]
+        return values
 
 
 def convert_latlon_to_ecef(latitude: float, longitude: float, altitude: float):
@@ -171,13 +186,32 @@ async def predict(request: PredictionRequest):
             wls_z = request.WlsPositionZEcefMeters
 
         # Prepare input data with the ECEF coordinates; keep field names (e.g., 'Speed') for ML features.
-        # NOTE: Do NOT use by_alias=True here; ML artifacts expect 'Speed' and logging reads 'Speed'/'speed'.
+        # We'll compute 'Speed' in meters per second, preferring 'speedMps' if provided,
+        # otherwise converting legacy 'speed' (kph) to m/s.
         input_data = request.dict()
 
         # Use the converted or provided ECEF coordinates
         input_data['WlsPositionXEcefMeters'] = wls_x
         input_data['WlsPositionYEcefMeters'] = wls_y
         input_data['WlsPositionZEcefMeters'] = wls_z
+
+        # Normalize speed to meters per second for ML feature 'Speed'
+        speed_mps: Optional[float] = None
+        try:
+            if request.SpeedMps is not None:
+                speed_mps = float(request.SpeedMps)
+            elif request.Speed is not None:
+                # Legacy kph -> m/s
+                speed_mps = float(request.Speed) / 3.6
+        except (TypeError, ValueError):
+            speed_mps = None
+
+        # Default to 0.0 if not provided to avoid model errors
+        if speed_mps is None:
+            speed_mps = 0.0
+
+        # ML artifacts expect feature named 'Speed' -> now defined as m/s
+        input_data['SpeedMps'] = speed_mps
 
         # Calculate derived features
         input_data['SignalQuality'] = input_data['Cn0DbHz'] * \
@@ -220,7 +254,8 @@ async def predict(request: PredictionRequest):
                     device_id=request.device_id,
                     fleet_id=request.fleet_id,
                     prediction_data=response_data,
-                    ml_request_data=request.dict(),
+                    # Broadcast raw IoT payload using aliases (e.g., speedMps)
+                    ml_request_data=request.dict(by_alias=True),
                     response_time_ms=response_time_ms
                 )
             )
@@ -274,8 +309,19 @@ async def predict(request: PredictionRequest):
                 "altitude": original_altitude  # Use original altitude, not corrected
             }
 
-            # Convert request to dict for logging (preserve field names like 'Speed')
-            ml_request_data = request.dict()
+            # Convert request to dict using aliases to store the original IoT payload (e.g., speedMps)
+            ml_request_data = request.dict(by_alias=True)
+            # Copy ECEF values into the iot_payload for full self-containment
+            ml_request_data["WlsPositionXEcefMeters"] = wls_x
+            ml_request_data["WlsPositionYEcefMeters"] = wls_y
+            ml_request_data["WlsPositionZEcefMeters"] = wls_z
+
+            # Prepare ECEF coordinates used by backend for logging
+            ecef_used = {
+                "WlsPositionXEcefMeters": wls_x,
+                "WlsPositionYEcefMeters": wls_y,
+                "WlsPositionZEcefMeters": wls_z,
+            }
 
             # Insert comprehensive tracking log for this SUCCESSFUL prediction
             log_id = insert_gps_log(
@@ -283,7 +329,8 @@ async def predict(request: PredictionRequest):
                 device_id=request.device_id,
                 fleet_id=request.fleet_id,
                 ml_request_data=ml_request_data,
-                corrected_coordinates=corrected_coordinates
+                corrected_coordinates=corrected_coordinates,
+                ecef_coordinates=ecef_used
             )
 
             print(f"✅ Successful ML prediction logged with ID: {log_id}")

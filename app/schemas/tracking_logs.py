@@ -28,4 +28,4 @@ class TrackingLogPublic(BaseModel):
     fleet_id: str
     device_id: str
     gps_data: List[GPSData]
-    speed: Optional[float]
+    SpeedMps: Optional[float]
