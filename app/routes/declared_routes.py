@@ -15,11 +15,13 @@ async def upload_declared_route(
     end_location: str = Form(...),
     landmark_details_start: str = Form(...),
     landmark_details_end: str = Form(...),
-    route_geojson: UploadFile = File(...)
+    route_geojson: UploadFile = File(None)
 ):
     try:
-        geojson_content = await route_geojson.read()
-        route_geojson_dict = json.loads(geojson_content)
+        route_geojson_dict = None
+        if route_geojson:
+            geojson_content = await route_geojson.read()
+            route_geojson_dict = json.loads(geojson_content)
         data = {
             "company_id": company_id,
             "start_location": start_location,
