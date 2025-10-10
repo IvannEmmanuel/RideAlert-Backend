@@ -17,8 +17,7 @@ async def upload_declared_route(
     end_location: str = Form(...),
     landmark_details_start: str = Form(...),
     landmark_details_end: str = Form(...),
-    route_geojson: UploadFile = File(...),
-    current_user: dict = Depends(super_and_admin_required)
+    route_geojson: UploadFile = File(...)
 ):
     try:
         geojson_content = await route_geojson.read()
