@@ -10,9 +10,7 @@ router = APIRouter(prefix="/declared_routes", tags=["Declared Routes"])
 
 @router.post("/upload", response_model=dict)
 async def upload_declared_route(
-    company_name: str = Form(...),
-    company_code: str = Form(...),
-    company_id: str = Form(None),
+    company_id: str = Form(...),
     start_location: str = Form(...),
     end_location: str = Form(...),
     landmark_details_start: str = Form(...),
@@ -23,8 +21,6 @@ async def upload_declared_route(
         geojson_content = await route_geojson.read()
         route_geojson_dict = json.loads(geojson_content)
         data = {
-            "company_name": company_name,
-            "company_code": company_code,
             "company_id": company_id,
             "start_location": start_location,
             "end_location": end_location,
