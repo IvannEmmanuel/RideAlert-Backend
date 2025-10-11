@@ -23,9 +23,15 @@ class MpuData(BaseModel):
     MeasurementZ: float
 
 
+class MovedPoint(BaseModel):
+    latitude: float
+    longitude: float
+
+
 class TrackingLogPublic(BaseModel):
     id: str
     fleet_id: str
     device_id: str
     gps_data: List[GPSData]
     SpeedMps: Optional[float]
+    moved_point: Optional[MovedPoint]
