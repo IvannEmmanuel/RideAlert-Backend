@@ -1,3 +1,5 @@
+# Add Shapely for geospatial snapping
+shapely
 fastapi
 uvicorn[standard]
 pymongo

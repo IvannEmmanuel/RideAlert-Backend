@@ -3,7 +3,7 @@ from bson import ObjectId
 import time
 
 
-def insert_gps_log(db, device_id: str, fleet_id: str, ml_request_data: dict, corrected_coordinates: dict, ecef_coordinates: dict | None = None):
+def insert_gps_log(db, device_id: str, fleet_id: str, ml_request_data: dict, corrected_coordinates: dict, ecef_coordinates: dict | None = None, moved_point: dict | None = None):
     """
     Insert ML prediction log into MongoDB Atlas with complete sensor data structure
 
@@ -109,35 +109,26 @@ def insert_gps_log(db, device_id: str, fleet_id: str, ml_request_data: dict, cor
         speed_mps = 0.0
 
     # Build the enhanced log entry with complete IoT payload and only essential derived data
+
     log_entry = {
-        "_id": ObjectId(),  # MongoDB will auto-generate if not provided
+        "_id": ObjectId(),
         "device_id": device_id,
         "fleet_id": fleet_id,
-        # Top-level normalized speed in meters per second for easy querying/aggregation
         "SpeedMps": speed_mps,
-
-        # Complete IoT payload - raw data as received from the IoT device
-        "iot_payload": ml_request_data,  # Full original payload for complete traceability
-
-        # Only store the ML-corrected coordinates (non-redundant essential data)
+        "iot_payload": ml_request_data,
         "ml_corrected_coordinates": {
-            # ML-corrected latitude
             "latitude": corrected_coordinates["latitude"],
-            # ML-corrected longitude
             "longitude": corrected_coordinates["longitude"]
-            # Note: altitude is not corrected by ML, use original from iot_payload
         },
-
-        # ECEF coordinates actually used by backend (computed from raw lat/lon/alt or provided)
-        # Included for analysis and retraining; raw payload fields may be null by design
         "wls_ecef": {
             "WlsPositionXEcefMeters": (ecef_coordinates or {}).get("WlsPositionXEcefMeters"),
             "WlsPositionYEcefMeters": (ecef_coordinates or {}).get("WlsPositionYEcefMeters"),
             "WlsPositionZEcefMeters": (ecef_coordinates or {}).get("WlsPositionZEcefMeters"),
         },
-
-        "timestamp": timestamp_ms  # Timestamp in milliseconds
+        "timestamp": timestamp_ms
     }
+    if moved_point is not None:
+        log_entry["moved_point"] = moved_point
 
     # Insert as a new document (not pushing to array)
     result = db["tracking_logs"].insert_one(log_entry)

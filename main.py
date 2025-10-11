@@ -9,6 +9,7 @@ from app.routes.fleets import router as fleets_router
 from app.routes.email_verification import router as email_router
 from app.routes import predict
 from app.routes import models
+import app.routes.declared_routes as declared_routes
 from fastapi.middleware.cors import CORSMiddleware
 from app.utils.background_loader import background_loader
 from contextlib import asynccontextmanager
@@ -83,6 +84,7 @@ app.include_router(models.router)
 app.include_router(iot_router)
 app.include_router(fleets_router)
 app.include_router(email_router)
+app.include_router(declared_routes.router)
 # Include other routers as needed
 
 
