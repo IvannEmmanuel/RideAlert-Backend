@@ -15,6 +15,42 @@ from app.utils.notifications import send_fcm_notification
 
 router = APIRouter(prefix="/vehicles", tags=["Vehicles"])
 
+
+@router.get("/{vehicle_id}")
+async def get_vehicle(vehicle_id: str):
+    """Return vehicle document by id or device_id (string or ObjectId)."""
+    try:
+        # Try treating as ObjectId first
+        query = None
+        if ObjectId.is_valid(vehicle_id):
+            query = {"$or": [{"_id": ObjectId(vehicle_id)}, {"device_id": vehicle_id}]}
+        else:
+            query = {"$or": [{"device_id": vehicle_id}, {"_id": vehicle_id}]}
+
+        print(f"GET /vehicles/{vehicle_id} query: {query}")
+
+        vehicle = vehicle_collection.find_one(query)
+        if not vehicle:
+            print(f"Vehicle {vehicle_id} not found")
+            raise HTTPException(status_code=404, detail="Vehicle not found")
+
+        # Build sanitized response to avoid nested ObjectId serialization issues
+        resp = {
+            "_id": str(vehicle.get("_id")),
+            "location": vehicle.get("location"),
+            "device_id": vehicle.get("device_id"),
+            "plate": vehicle.get("plate"),
+            "driverName": vehicle.get("driverName"),
+            "fleet_id": str(vehicle.get("fleet_id")) if vehicle.get("fleet_id") else None
+        }
+        print(f"GET /vehicles/{vehicle_id} response: {resp}")
+        return resp
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in get_vehicle: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 class ETARequest(BaseModel):
     vehicle_id: str
     user_location: Location
