@@ -1,23 +1,49 @@
-from typing import Optional, Union
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi import Body
-from pydantic import BaseModel
-from app.database import vehicle_collection, tracking_logs_collection, user_collection, notification_logs_collection
-from bson import ObjectId
-from app.dependencies.roles import user_required, admin_required, user_or_admin_required, super_and_admin_required
-from app.schemas.vehicle import VehicleTrackResponse, Location, VehicleStatus, VehicleBase, VehicleInDB
-from typing import List
-from datetime import datetime, timedelta
-import asyncio
-from app.utils.geo import haversine
-from app.utils.ws_manager import vehicle_count_manager, vehicle_all_manager
+# Endpoint for fleet admin to assign route_id to a vehicle
 from app.utils.notifications import send_fcm_notification
+from app.utils.ws_manager import vehicle_count_manager, vehicle_all_manager
+from app.utils.geo import haversine
+import asyncio
+from datetime import datetime, timedelta
+from typing import List
+from app.schemas.vehicle import VehicleTrackResponse, Location, VehicleStatus, VehicleBase, VehicleInDB
+from app.dependencies.roles import user_required, admin_required, user_or_admin_required, super_and_admin_required
+from bson import ObjectId
+from app.database import vehicle_collection, tracking_logs_collection, user_collection, notification_logs_collection
+from pydantic import BaseModel
+from fastapi import Body
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from typing import Optional, Union
 
 router = APIRouter(prefix="/vehicles", tags=["Vehicles"])
+
+
+@router.put("/assign-route/{vehicle_id}")
+async def assign_route_id(vehicle_id: str, route_id: str, current_user: dict = Depends(super_and_admin_required)):
+    try:
+        result = vehicle_collection.update_one(
+            {"_id": ObjectId(vehicle_id)},
+            {"$set": {"route_id": route_id}}
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Vehicle not found")
+
+        # Broadcast vehicle lists if the vehicle is available and has a valid location
+        vehicle = vehicle_collection.find_one({"_id": ObjectId(vehicle_id)})
+        fleet_id = str(vehicle.get("fleet_id", ""))
+        await broadcast_vehicle_list(fleet_id)
+        if vehicle.get("status") == "available" and vehicle.get("location", {}).get("latitude") and vehicle.get("location", {}).get("longitude"):
+            await broadcast_available_vehicle_list(fleet_id)
+
+        return {"message": "Route ID assigned successfully"}
+    except ValueError:
+        raise HTTPException(
+            status_code=400, detail="Invalid vehicle ID format")
+
 
 class ETARequest(BaseModel):
     vehicle_id: str
     user_location: Location
+
 
 class ETAResponse(BaseModel):
     vehicle_id: str
@@ -37,6 +63,7 @@ class ETAResponse(BaseModel):
     is_stopped: bool
     confidence: str  # "high", "medium", "low"
 
+
 def get_speed_history(device_id: str, minutes: int = 5) -> list:
     """
     Get speed history for the last N minutes to calculate average speed.
@@ -44,7 +71,7 @@ def get_speed_history(device_id: str, minutes: int = 5) -> list:
     """
     time_threshold = datetime.utcnow() - timedelta(minutes=minutes)
     timestamp_ms = int(time_threshold.timestamp() * 1000)
-    
+
     tracking_logs = list(tracking_logs_collection.find(
         {
             "device_id": device_id,
@@ -53,13 +80,14 @@ def get_speed_history(device_id: str, minutes: int = 5) -> list:
         sort=[("timestamp", -1)],
         limit=30  # Last 30 readings (should cover 5 minutes)
     ))
-    
+
     speeds = []
     for log in tracking_logs:
         speed = log.get("SpeedMps", 0.0)
         speeds.append(speed)
-    
+
     return speeds
+
 
 def calculate_average_speed(speeds: list, percentile: float = 0.7) -> float:
     """
@@ -68,33 +96,34 @@ def calculate_average_speed(speeds: list, percentile: float = 0.7) -> float:
     """
     if not speeds:
         return 0.0
-    
+
     # Remove zeros and negative values
     valid_speeds = [s for s in speeds if s > 0]
-    
+
     if not valid_speeds:
         return 0.0
-    
+
     # Sort speeds
     valid_speeds.sort()
-    
+
     # Get 70th percentile (ignore bottom 30% which might be stops)
     index = int(len(valid_speeds) * percentile)
     if index >= len(valid_speeds):
         index = len(valid_speeds) - 1
-    
+
     # Average of speeds above percentile threshold
     percentile_speed = valid_speeds[index]
-    
+
     # Calculate average of speeds that are >= percentile_speed / 2
     # This includes moving speeds but excludes complete stops
     threshold = percentile_speed / 2
     moving_speeds = [s for s in valid_speeds if s >= threshold]
-    
+
     if not moving_speeds:
         return percentile_speed
-    
+
     return sum(moving_speeds) / len(moving_speeds)
+
 
 def is_vehicle_stopped(current_speed: float, speed_history: list) -> bool:
     """
@@ -112,6 +141,7 @@ def is_vehicle_stopped(current_speed: float, speed_history: list) -> bool:
                 return True
     return False
 
+
 def calculate_smart_eta(
     distance_meters: float,
     current_speed_mps: float,
@@ -121,7 +151,7 @@ def calculate_smart_eta(
 ) -> tuple[Optional[float], str, str]:
     """
     Calculate ETA with intelligent handling of stops and traffic.
-    
+
     Returns:
         (eta_minutes, eta_formatted, confidence_level)
     """
@@ -129,14 +159,14 @@ def calculate_smart_eta(
     URBAN_SPEED_MPS = 8.33  # 30 km/h - typical urban speed
     SLOW_TRAFFIC_MPS = 5.56  # 20 km/h - slow traffic
     MIN_SPEED_MPS = 2.78     # 10 km/h - very slow/congested
-    
+
     # Scenario 1: Vehicle is stopped (traffic light, picking passengers, etc.)
     if is_stopped:
         # Use average speed from history, or default urban speed
         effective_speed = average_speed_mps if average_speed_mps > 1.0 else URBAN_SPEED_MPS
         confidence = "medium"
         message = "Vehicle temporarily stopped. ETA based on average speed."
-    
+
     # Scenario 2: Vehicle status is "standing" (parked/not moving)
     elif vehicle_status == "standing":
         # Vehicle is not in service yet
@@ -150,28 +180,31 @@ def calculate_smart_eta(
             effective_speed = URBAN_SPEED_MPS
             confidence = "low"
             message = "Vehicle standing. ETA is estimated."
-    
+
     # Scenario 3: Vehicle is moving slowly (traffic/congestion)
     elif 0.5 <= current_speed_mps < 3.0:  # Between 1.8 km/h and 10.8 km/h
         # Probably in traffic, use weighted average of current and historical
         if average_speed_mps > current_speed_mps:
             # Traffic is clearing up, weight more toward average
-            effective_speed = (current_speed_mps * 0.3) + (average_speed_mps * 0.7)
+            effective_speed = (current_speed_mps * 0.3) + \
+                (average_speed_mps * 0.7)
         else:
             # Traffic is getting worse, weight more toward current
-            effective_speed = (current_speed_mps * 0.7) + (average_speed_mps * 0.3)
-        
+            effective_speed = (current_speed_mps * 0.7) + \
+                (average_speed_mps * 0.3)
+
         # Ensure minimum speed
         effective_speed = max(effective_speed, MIN_SPEED_MPS)
         confidence = "medium"
         message = "Vehicle in traffic. ETA adjusted for congestion."
-    
+
     # Scenario 4: Vehicle is moving normally
     elif current_speed_mps >= 3.0:
         # Use blend of current and average for stability
         if average_speed_mps > 1.0:
             # Weight 60% current, 40% average for stability
-            effective_speed = (current_speed_mps * 0.6) + (average_speed_mps * 0.4)
+            effective_speed = (current_speed_mps * 0.6) + \
+                (average_speed_mps * 0.4)
             confidence = "high"
             message = "Vehicle moving normally. Real-time ETA."
         else:
@@ -179,22 +212,22 @@ def calculate_smart_eta(
             effective_speed = current_speed_mps
             confidence = "medium"
             message = "Vehicle moving. ETA based on current speed."
-    
+
     # Scenario 5: Very low/zero speed with no history
     else:
         effective_speed = URBAN_SPEED_MPS
         confidence = "low"
         message = "Limited data. ETA is estimated."
-    
+
     # Calculate ETA
     eta_seconds = distance_meters / effective_speed
     eta_minutes = eta_seconds / 60
-    
+
     # Add buffer for stops (traffic lights, passenger pickup, etc.)
     # Add 15% buffer for urban travel, capped at 5 minutes
     buffer_minutes = min(eta_minutes * 0.15, 5.0)
     eta_minutes_with_buffer = eta_minutes + buffer_minutes
-    
+
     # Format ETA
     if eta_minutes_with_buffer < 1:
         eta_formatted = "Less than 1 minute"
@@ -204,8 +237,9 @@ def calculate_smart_eta(
         hours = int(eta_minutes_with_buffer // 60)
         mins = int(eta_minutes_with_buffer % 60)
         eta_formatted = f"{hours} hour{'s' if hours > 1 else ''} {mins} minutes"
-    
+
     return eta_minutes_with_buffer, eta_formatted, confidence, message
+
 
 @router.post("/calculate-eta", response_model=ETAResponse)
 async def calculate_vehicle_eta(
@@ -214,7 +248,7 @@ async def calculate_vehicle_eta(
 ):
     """
     Calculate SMART distance and ETA with traffic-aware logic.
-    
+
     This endpoint:
     1. Fetches vehicle and latest tracking data
     2. Analyzes speed history (last 5 minutes)
@@ -222,30 +256,33 @@ async def calculate_vehicle_eta(
     4. Calculates realistic ETA with buffer for stops
     5. Provides confidence level for the estimate
     """
-    
+
     # Validate vehicle_id
     if not ObjectId.is_valid(request.vehicle_id):
-        raise HTTPException(status_code=400, detail="Invalid vehicle ID format")
-    
+        raise HTTPException(
+            status_code=400, detail="Invalid vehicle ID format")
+
     # Fetch vehicle
-    vehicle = vehicle_collection.find_one({"_id": ObjectId(request.vehicle_id)})
+    vehicle = vehicle_collection.find_one(
+        {"_id": ObjectId(request.vehicle_id)})
     if not vehicle:
         raise HTTPException(status_code=404, detail="Vehicle not found")
-    
+
     # Get vehicle location
     vehicle_location = vehicle.get("location")
     if not vehicle_location or not vehicle_location.get("latitude") or not vehicle_location.get("longitude"):
-        raise HTTPException(status_code=400, detail="Vehicle location not available")
-    
+        raise HTTPException(
+            status_code=400, detail="Vehicle location not available")
+
     vehicle_lat = vehicle_location["latitude"]
     vehicle_lon = vehicle_location["longitude"]
     user_lat = request.user_location.latitude
     user_lon = request.user_location.longitude
-    
+
     # Calculate distance
     distance_meters = haversine(user_lat, user_lon, vehicle_lat, vehicle_lon)
     distance_km = distance_meters / 1000
-    
+
     # Get device_id and fetch speed data
     device_id = vehicle.get("device_id")
     current_speed_mps = 0.0
@@ -253,34 +290,37 @@ async def calculate_vehicle_eta(
     status_message = "ETA calculated using default speed"
     confidence = "low"
     is_stopped_flag = False
-    
+
     if device_id:
         # Get latest tracking log
         latest_tracking = tracking_logs_collection.find_one(
             {"device_id": device_id},
             sort=[("timestamp", -1)]
         )
-        
+
         if latest_tracking:
             current_speed_mps = latest_tracking.get("SpeedMps", 0.0)
-            
+
             # Check if tracking data is recent (within last 2 minutes)
             tracking_timestamp = latest_tracking.get("timestamp")
             if tracking_timestamp:
-                tracking_time = datetime.fromtimestamp(tracking_timestamp / 1000)
+                tracking_time = datetime.fromtimestamp(
+                    tracking_timestamp / 1000)
                 time_diff = datetime.utcnow() - tracking_time
-                
+
                 if time_diff <= timedelta(minutes=2):
                     # Get speed history for smart calculation
                     speed_history = get_speed_history(device_id, minutes=5)
-                    
+
                     if speed_history:
-                        average_speed_mps = calculate_average_speed(speed_history)
-                        is_stopped_flag = is_vehicle_stopped(current_speed_mps, speed_history)
-    
+                        average_speed_mps = calculate_average_speed(
+                            speed_history)
+                        is_stopped_flag = is_vehicle_stopped(
+                            current_speed_mps, speed_history)
+
     # Get vehicle status details
     vehicle_status_detail = vehicle.get("status_detail", "").lower()
-    
+
     # Calculate smart ETA
     eta_minutes, eta_formatted, confidence, status_message = calculate_smart_eta(
         distance_meters,
@@ -289,11 +329,11 @@ async def calculate_vehicle_eta(
         is_stopped_flag,
         vehicle_status_detail
     )
-    
+
     # Convert speeds to km/h for response
     current_speed_kmh = current_speed_mps * 3.6
     average_speed_kmh = average_speed_mps * 3.6
-    
+
     return ETAResponse(
         vehicle_id=str(vehicle["_id"]),
         vehicle_plate=vehicle.get("plate", "Unknown"),
@@ -318,6 +358,7 @@ async def calculate_vehicle_eta(
         is_stopped=is_stopped_flag,
         confidence=confidence
     )
+
 
 def serialize_vehicle(vehicle):
     """Serialize a vehicle document, converting ObjectId to string."""
@@ -350,7 +391,7 @@ async def broadcast_available_vehicle_list(fleet_id: str):
     """Broadcast the list of available vehicles with valid locations for a specific fleet_id."""
     query = {
         "fleet_id": fleet_id,
-         "status": {"$in": ["available", "full"]},
+        "status": {"$in": ["available", "full"]},
         "location.latitude": {"$ne": None},
         "location.longitude": {"$ne": None}
     }

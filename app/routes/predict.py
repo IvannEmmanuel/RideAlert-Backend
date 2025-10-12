@@ -20,25 +20,35 @@ _route_cache = {"line": None, "last_refresh": 0}
 _route_cache_lock = threading.Lock()
 
 
-async def get_route_line_from_db():
+async def get_route_line_from_db(route_id: Optional[str] = None):
     """
-    Load and cache the route LineString from MongoDB (db.routes) for a specific company_id, refreshing every hour.
+    Load and cache the route LineString from MongoDB (db.declared_routes) for a specific route_id, refreshing every hour.
     Returns a Shapely LineString or None if not available.
     """
     global _route_cache
     now = _time.time()
+    cache_key = route_id if route_id else "default"
     with _route_cache_lock:
-        if _route_cache["line"] is not None and now - _route_cache["last_refresh"] < 3600:
-            return _route_cache["line"]
+        cache_entry = _route_cache.get(cache_key)
+        if cache_entry and cache_entry["line"] is not None and now - cache_entry["last_refresh"] < 3600:
+            return cache_entry["line"]
         try:
-            # Hardcoded company_id as per user request
-            company_id = "68bee7eb753d0934fd57bdea"
-            route_doc = db.declared_routes.find_one({"company_id": company_id})
-            if not route_doc:
-                print("⚠️ No route found for company_id in DB.")
-                _route_cache["line"] = None
+            query = {}
+            if route_id:
+                if ObjectId.is_valid(route_id):
+                    query["_id"] = ObjectId(route_id)
+                else:
+                    query["_id"] = route_id
+            else:
+                # fallback: no route_id provided
+                print("⚠️ No route_id provided to get_route_line_from_db.")
+                _route_cache[cache_key] = {"line": None, "last_refresh": now}
                 return None
-            # Safely navigate nested GeoJSON: find first LineString feature
+            route_doc = db.declared_routes.find_one(query)
+            if not route_doc:
+                print(f"⚠️ No route found for query: {query}")
+                _route_cache[cache_key] = {"line": None, "last_refresh": now}
+                return None
             try:
                 features = route_doc["route_geojson"].get("features", [])
                 line_coords = None
@@ -49,22 +59,21 @@ async def get_route_line_from_db():
                         break
                 if not line_coords or not isinstance(line_coords, list):
                     print("⚠️ No LineString coordinates found in route_geojson.")
-                    _route_cache["line"] = None
+                    _route_cache[cache_key] = {
+                        "line": None, "last_refresh": now}
                     return None
-                # Convert to LineString (lon, lat)
                 line = LineString([(lon, lat) for lon, lat in line_coords])
-                _route_cache["line"] = line
-                _route_cache["last_refresh"] = now
+                _route_cache[cache_key] = {"line": line, "last_refresh": now}
                 print(
-                    f"✅ Loaded geomap from DB with {len(line_coords)} points.")
+                    f"✅ Loaded geomap from DB with {len(line_coords)} points for route_id={route_id}")
                 return line
             except Exception as e:
                 print(f"⚠️ Error parsing route_geojson: {e}")
-                _route_cache["line"] = None
+                _route_cache[cache_key] = {"line": None, "last_refresh": now}
                 return None
         except Exception as e:
             print(f"⚠️ Error loading route from DB: {e}")
-            _route_cache["line"] = None
+            _route_cache[cache_key] = {"line": None, "last_refresh": now}
             return None
 
 
@@ -300,16 +309,25 @@ async def predict(request: PredictionRequest):
         corrected_lat = wls_lat + prediction[0]
         corrected_lng = wls_lng + prediction[1]
 
-        # --- Route snapping integration ---
+        # --- Scalable route snapping integration ---
         snapped_lat, snapped_lng = corrected_lat, corrected_lng
         snapped = False
         try:
-            route_line = await get_route_line_from_db()
+            # Try to get route_id from payload, else from vehicle entity
+            route_id = getattr(request, "route_id", None)
+            if not route_id:
+                # Look up vehicle by device_id
+                vehicle = db.vehicles.find_one(
+                    {"device_id": request.device_id})
+                if vehicle:
+                    route_id = vehicle.get("route_id")
+            route_line = await get_route_line_from_db(route_id=route_id)
             if route_line:
                 snapped_lat, snapped_lng = snap_to_route(
                     corrected_lat, corrected_lng, route_line)
                 snapped = True
-                print(f"✅ Snapped to route: ({snapped_lat}, {snapped_lng})")
+                print(
+                    f"✅ Snapped to route: ({snapped_lat}, {snapped_lng}) [route_id={route_id}]")
             else:
                 print("⚠️ No route available, using raw corrected coordinates.")
         except Exception as e:
