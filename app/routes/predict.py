@@ -335,6 +335,7 @@ async def predict(request: PredictionRequest):
             asyncio.create_task(
                 broadcast_prediction(
                     device_id=request.device_id,
+                    vehicle_id=None,  # let websocket handler resolve vehicle _id from device_id
                     fleet_id=request.fleet_id,
                     prediction_data=response_data,
                     # Broadcast raw IoT payload using aliases (e.g., speedMps)
