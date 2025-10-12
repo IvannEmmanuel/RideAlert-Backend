@@ -14,88 +14,11 @@ logger = logging.getLogger(__name__)
 
 ws_router = APIRouter(tags=["WebSocket"])
 
-vehicle_subscribers: Dict[str, List[WebSocket]] = {}
-# Add new subscribers for vehicle location updates via IoT predictions
-# vehicle_id -> subscribers (since each vehicle has one paired IoT device)
-# Global vehicle location feed
-all_vehicle_updates_subscribers: List[WebSocket] = []
 
-
-@ws_router.websocket("/ws/location")
-async def update_location(websocket: WebSocket):
-    await websocket.accept()
-    try:
-        while True:
-            data = await websocket.receive_json()
-
-            vehicle_id = data.get("vehicle_id")
-            location_data = data.get("location")
-
-            # Validate ObjectId
-            try:
-                oid = ObjectId(vehicle_id)
-            except Exception:
-                await websocket.send_text("Invalid vehicle_id format")
-                continue
-
-            # Debug: print all vehicle IDs in the collection
-            print("Looking for vehicle:", oid)
-            print("All vehicle IDs:", [str(v["_id"])
-                  for v in vehicle_collection.find({}, {"_id": 1})])
-
-            # Validate location structure
-            try:
-                location = VehicleLocation(**location_data)
-            except ValidationError:
-                await websocket.send_text("Invalid location format")
-                continue
-
-            # Update vehicle's location in MongoDB
-            result = vehicle_collection.update_one(
-                {"_id": oid},
-                {"$set": {"location": location.dict()}}
-            )
-
-            # Notify all users tracking this vehicle
-            tracking_users = user_collection.find(
-                {"tracking_vehicle_id": vehicle_id})
-            for user in tracking_users:
-                user_location = user.get("location")
-                if user_location:
-                    try:
-                        await check_and_notify(
-                            str(user["_id"]),
-                            type("UserLoc", (), user_location)(),
-                            location
-                        )
-                    except Exception as e:
-                        await websocket.send_text(f"Error in check_and_notify: {e}")
-
-            # After updating the vehicle's location in MongoDB
-            if result.matched_count == 1:
-                # Broadcast to all subscribers of this vehicle
-                subscribers = vehicle_subscribers.get(vehicle_id, [])
-                for ws in subscribers:
-                    try:
-                        await ws.send_json({
-                            "vehicle_id": vehicle_id,
-                            "location": location.dict(),
-                            "updated": result.modified_count == 1
-                        })
-                    except Exception as e:
-                        print(f"Error sending to subscriber: {e}")
-
-                # Optionally, also send a response to the sender
-                await websocket.send_json({
-                    "vehicle_id": vehicle_id,
-                    "location": location.dict(),
-                    "updated": result.modified_count == 1
-                })
-            else:
-                await websocket.send_text(f"Vehicle {vehicle_id} not found")
-
-    except WebSocketDisconnect:
-        print("Vehicle client disconnected")
+# device_id -> subscribers (for IoT device location updates)
+device_subscribers: Dict[str, List[WebSocket]] = {}
+# Global device location feed
+all_device_updates_subscribers: List[WebSocket] = []
 
 
 @ws_router.websocket("/ws/user-location")
@@ -144,7 +67,7 @@ async def update_user_location(websocket: WebSocket):
 
             if result.modified_count == 1:
                 await websocket.send_text(f"Location updated for user {user_id}")
-                
+
                 # Trigger proximity checks against fleet vehicles
                 try:
                     # Query available vehicles in user's fleet with valid locations
@@ -157,9 +80,10 @@ async def update_user_location(websocket: WebSocket):
                         ]
                     }
                     vehicles = list(vehicle_collection.find(fleet_query))
-                    
-                    logger.info(f"Checking proximity for user {user_id} against {len(vehicles)} vehicles in fleet {fleet_id}")
-                    
+
+                    logger.info(
+                        f"Checking proximity for user {user_id} against {len(vehicles)} vehicles in fleet {fleet_id}")
+
                     # For each vehicle, check distance and notify if close
                     notified_count = 0
                     for vehicle in vehicles:
@@ -169,16 +93,19 @@ async def update_user_location(websocket: WebSocket):
                             success = await check_and_notify(
                                 str(oid),  # user_id
                                 location,  # UserLocation object
-                                type("VehicleLoc", (), vehicle_loc)(),  # Mock for VehicleLocation
+                                # Mock for VehicleLocation
+                                type("VehicleLoc", (), vehicle_loc)(),
                                 vehicle_id  # For anti-spam
                             )
                             if success:
                                 notified_count += 1
-                    
-                    logger.info(f"Proximity checks complete for user {user_id}: {notified_count} notifications sent")
-                    
+
+                    logger.info(
+                        f"Proximity checks complete for user {user_id}: {notified_count} notifications sent")
+
                 except Exception as check_err:
-                    logger.error(f"Error in proximity checks for user {user_id}: {check_err}")
+                    logger.error(
+                        f"Error in proximity checks for user {user_id}: {check_err}")
                     await websocket.send_text(f"Proximity check failed: {check_err}")
             else:
                 await websocket.send_text(f"No location change made for user {user_id}")
@@ -186,36 +113,43 @@ async def update_user_location(websocket: WebSocket):
     except WebSocketDisconnect:
         print("User client is disconnected")
 
-# para track ang vehicles continuously no need to reload
 
+# para track ang devices continuously no need to reload
 
-@ws_router.websocket("/ws/track-vehicle")
-async def track_vehicle_ws(websocket: WebSocket):
+@ws_router.websocket("/ws/track-device")
+async def track_device_ws(websocket: WebSocket):
     await websocket.accept()
-    vehicle_id = None
+    device_id = None
     try:
         data = await websocket.receive_json()
-        vehicle_id = data.get("vehicle_id")
-        if not vehicle_id:
-            await websocket.send_text("vehicle_id required")
+        device_id = data.get("device_id")
+        if not device_id:
+            await websocket.send_text("device_id required")
             await websocket.close()
             return
 
-        if vehicle_id not in vehicle_subscribers:
-            vehicle_subscribers[vehicle_id] = []
-        vehicle_subscribers[vehicle_id].append(websocket)
+        if device_id not in device_subscribers:
+            device_subscribers[device_id] = []
+        device_subscribers[device_id].append(websocket)
+
+        # Send initial connection confirmation describing channel purpose
+        await websocket.send_json({
+            "type": "connection_established",
+            "device_id": device_id,
+            "message": f"Continuous tracking channel: Only broadcasts location updates for device {device_id}.",
+            "timestamp": datetime.utcnow().isoformat()
+        })
 
         while True:
-            # Keep connection alive so that it receive always.
             await websocket.receive_text()
     except WebSocketDisconnect:
-        if vehicle_id and vehicle_id in vehicle_subscribers:
-            subs = vehicle_subscribers[vehicle_id]
+        if device_id and device_id in device_subscribers:
+            subs = device_subscribers[device_id]
             if websocket in subs:
                 subs.remove(websocket)
                 if not subs:
-                    vehicle_subscribers.pop(vehicle_id)
-        print("Vehicle tracking client disconnected from user")
+                    device_subscribers.pop(device_id)
+        print("Device tracking client disconnected from user")
 
 # para count tanan vehicles continuously (bisan newly created) no need to reload
 
@@ -314,7 +248,8 @@ async def all_vehicles_ws(websocket: WebSocket, fleet_id: str):
     except WebSocketDisconnect:
         print(
             f"Vehicle list WebSocket client for fleet {fleet_id} disconnected")
-        
+
+
 @ws_router.websocket("/ws/vehicles/available/{fleet_id}")
 async def available_vehicles_ws(websocket: WebSocket, fleet_id: str):
     """Stream only available vehicles that have a location"""
@@ -351,105 +286,42 @@ async def available_vehicles_ws(websocket: WebSocket, fleet_id: str):
 
 
 # New WebSocket endpoint for vehicle-specific location monitoring via IoT predictions
-@ws_router.websocket("/ws/vehicle/{vehicle_id}/location")
-async def vehicle_location_ws(websocket: WebSocket, vehicle_id: str):
-    """Monitor location updates from a specific vehicle's IoT device"""
-    await websocket.accept()
-
-    try:
-        # Add subscriber for this vehicle
-        if vehicle_id not in vehicle_subscribers:
-            vehicle_subscribers[vehicle_id] = []
-        vehicle_subscribers[vehicle_id].append(websocket)
-
-        # Send initial connection confirmation
-        await websocket.send_json({
-            "type": "connection_established",
-            "vehicle_id": vehicle_id,
-            "message": f"Monitoring location updates from vehicle {vehicle_id}",
-            "timestamp": datetime.utcnow().isoformat()
-        })
-
-        # Keep connection alive
-        while True:
-            await websocket.receive_text()  # Just to keep connection alive
-
-    except WebSocketDisconnect:
-        # Remove subscriber
-        if vehicle_id in vehicle_subscribers:
-            subs = vehicle_subscribers[vehicle_id]
-            if websocket in subs:
-                subs.remove(websocket)
-                if not subs:
-                    vehicle_subscribers.pop(vehicle_id)
-        print(f"Vehicle {vehicle_id} location monitoring client disconnected")
 
 
-# New WebSocket endpoint for all vehicle location monitoring
-@ws_router.websocket("/ws/vehicles/locations")
-async def all_vehicle_locations_ws(websocket: WebSocket):
-    """Monitor location updates from all vehicles' IoT devices"""
-    await websocket.accept()
+# Function to broadcast device location updates (call from predict.py)
+async def broadcast_prediction(device_id: str, fleet_id: str, prediction_data: dict, ml_request_data: dict, response_time_ms: float):
+    """Broadcast device location update from IoT device ML prediction to WebSocket subscribers"""
 
-    try:
-        # Add to global subscribers
-        all_vehicle_updates_subscribers.append(websocket)
-
-        # Send initial connection confirmation
-        await websocket.send_json({
-            "type": "connection_established",
-            "message": "Monitoring location updates from all vehicles",
-            "timestamp": datetime.utcnow().isoformat()
-        })
-
-        # Keep connection alive
-        while True:
-            await websocket.receive_text()
-
-    except WebSocketDisconnect:
-        # Remove subscriber
-        if websocket in all_vehicle_updates_subscribers:
-            all_vehicle_updates_subscribers.remove(websocket)
-        print("Global vehicle location monitoring client disconnected")
-
-
-# Function to broadcast vehicle location updates (we'll call this from predict.py)
-async def broadcast_prediction(device_id: str, vehicle_id: str, fleet_id: str, prediction_data: dict, ml_request_data: dict, response_time_ms: float):
-    """Broadcast vehicle location update from IoT device ML prediction to WebSocket subscribers"""
-
-    # Prepare simplified broadcast message - vehicle location update
     broadcast_message = {
         "type": "location_update",
         "timestamp": datetime.utcnow().isoformat(),
-        "vehicle_id": vehicle_id,
+        "device_id": device_id,
         "latitude": prediction_data.get("latitude"),
         "longitude": prediction_data.get("longitude")
     }
 
-    # Broadcast to vehicle-specific subscribers
-    vehicle_subs = vehicle_subscribers.get(vehicle_id, [])
+    # Broadcast to device-specific subscribers
+    device_subs = device_subscribers.get(device_id, [])
     disconnected_subs = []
 
-    for ws in vehicle_subs:
+    for ws in device_subs:
         try:
             await ws.send_json(broadcast_message)
         except Exception as e:
-            print(f"Error sending to vehicle {vehicle_id} subscriber: {e}")
+            print(f"Error sending to device {device_id} subscriber: {e}")
             disconnected_subs.append(ws)
 
-    # Remove disconnected subscribers
     for ws in disconnected_subs:
-        vehicle_subs.remove(ws)
+        device_subs.remove(ws)
 
-    # Broadcast to global vehicle location subscribers
+    # Broadcast to global device location subscribers
     global_disconnected = []
-    for ws in all_vehicle_updates_subscribers:
+    for ws in all_device_updates_subscribers:
         try:
             await ws.send_json(broadcast_message)
         except Exception as e:
-            print(f"Error sending to global vehicle location subscriber: {e}")
+            print(f"Error sending to global device location subscriber: {e}")
             global_disconnected.append(ws)
 
-    # Remove disconnected global subscribers
     for ws in global_disconnected:
-        all_vehicle_updates_subscribers.remove(ws)
+        all_device_updates_subscribers.remove(ws)
