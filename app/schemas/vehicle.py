@@ -29,6 +29,8 @@ class VehicleStatusDetails(str, Enum):
 class Location(BaseModel):
     latitude: float
     longitude: float
+    # Unix timestamp (ms) of last location update
+    last_updated: Optional[int] = None
 
 
 class VehicleBase(BaseModel):

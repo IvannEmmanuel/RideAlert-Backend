@@ -365,7 +365,7 @@ async def predict(request: PredictionRequest):
         except Exception as e:
             print(f"⚠️ Warning: Failed to broadcast prediction: {e}")
 
-        # Update vehicle location in the vehicles collection with snapped coordinates
+        # Update vehicle location in the vehicles collection with snapped coordinates and last_updated timestamp
         try:
             dev_id = str(request.device_id).strip()
             filter_query = {"$or": [{"device_id": dev_id}]}
@@ -378,7 +378,9 @@ async def predict(request: PredictionRequest):
                     "$set": {
                         "location": {
                             "latitude": float(snapped_lat),
-                            "longitude": float(snapped_lng)
+                            "longitude": float(snapped_lng),
+                            # Unix timestamp in ms
+                            "last_updated": int(time.time() * 1000)
                         }
                     }
                 }

@@ -146,7 +146,7 @@ async def update_user_location(websocket: WebSocket):
 
             if result.modified_count == 1:
                 await websocket.send_text(f"Location updated for user {user_id}")
-                
+
                 # Trigger proximity checks against fleet vehicles
                 try:
                     # Query available vehicles in user's fleet with valid locations
@@ -159,9 +159,10 @@ async def update_user_location(websocket: WebSocket):
                         ]
                     }
                     vehicles = list(vehicle_collection.find(fleet_query))
-                    
-                    logger.info(f"Checking proximity for user {user_id} against {len(vehicles)} vehicles in fleet {fleet_id}")
-                    
+
+                    logger.info(
+                        f"Checking proximity for user {user_id} against {len(vehicles)} vehicles in fleet {fleet_id}")
+
                     # For each vehicle, check distance and notify if close
                     notified_count = 0
                     for vehicle in vehicles:
@@ -171,16 +172,19 @@ async def update_user_location(websocket: WebSocket):
                             success = await check_and_notify(
                                 str(oid),  # user_id
                                 location,  # UserLocation object
-                                type("VehicleLoc", (), vehicle_loc)(),  # Mock for VehicleLocation
+                                # Mock for VehicleLocation
+                                type("VehicleLoc", (), vehicle_loc)(),
                                 vehicle_id  # For anti-spam
                             )
                             if success:
                                 notified_count += 1
-                    
-                    logger.info(f"Proximity checks complete for user {user_id}: {notified_count} notifications sent")
-                    
+
+                    logger.info(
+                        f"Proximity checks complete for user {user_id}: {notified_count} notifications sent")
+
                 except Exception as check_err:
-                    logger.error(f"Error in proximity checks for user {user_id}: {check_err}")
+                    logger.error(
+                        f"Error in proximity checks for user {user_id}: {check_err}")
                     await websocket.send_text(f"Proximity check failed: {check_err}")
             else:
                 await websocket.send_text(f"No location change made for user {user_id}")
@@ -282,7 +286,10 @@ async def vehicle_counts_ws(websocket: WebSocket, fleet_id: str):
                     "unavailable": unavailable
                 })
             except Exception as e:
-                await websocket.send_json({"error": str(e)})
+                try:
+                    await websocket.send_json({"error": str(e)})
+                except (WebSocketDisconnect, RuntimeError):
+                    break  # Stop sending if disconnected
 
             await asyncio.sleep(3)  # update every 3 seconds
     except WebSocketDisconnect:
@@ -316,7 +323,8 @@ async def all_vehicles_ws(websocket: WebSocket, fleet_id: str):
     except WebSocketDisconnect:
         print(
             f"Vehicle list WebSocket client for fleet {fleet_id} disconnected")
-        
+
+
 @ws_router.websocket("/ws/vehicles/available/{fleet_id}")
 async def available_vehicles_ws(websocket: WebSocket, fleet_id: str):
     """Stream only available vehicles that have a location"""
@@ -471,7 +479,8 @@ async def broadcast_prediction(device_id: str, vehicle_id: Optional[str], fleet_
                 # No vehicle mapping found for this device_id
                 resolved_vehicle_id = None
         except Exception as e:
-            print(f"Error resolving vehicle_id from device_id {device_id}: {e}")
+            print(
+                f"Error resolving vehicle_id from device_id {device_id}: {e}")
             resolved_vehicle_id = None
 
     # Prepare simplified broadcast message - vehicle location update

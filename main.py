@@ -1,3 +1,4 @@
+from app.workers.background_status_checker import start_background_status_checker
 from fastapi import FastAPI
 from fastapi import Response
 from app.routes import user
@@ -20,32 +21,33 @@ import asyncio
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global proximity_task
-    
+
     # Startup
     print("🚀 FastAPI starting up...")
-    
+
     # Start background model loader
     try:
         background_loader.start_background_loading()
         print("📦 Background loading configured (models will load on-demand)")
     except Exception as e:
         print(f"⚠️ Background loader setup warning: {e}")
-    
+
     # Start proximity checker
     try:
         proximity_task = asyncio.create_task(start_proximity_checker())
         print("✅ Proximity checker started")
     except Exception as e:
         print(f"⚠️ Proximity checker startup warning: {e}")
-    
+
     yield
-    
+
     # Shutdown
     print("🔄 FastAPI shutting down...")
-    
+
     # Stop proximity checker
     try:
         stop_proximity_checker()
@@ -92,7 +94,7 @@ app.include_router(declared_routes.router)
 def read_root():
     return {"message": "Server is running",
             "proximity_checker": "active"
-    }
+            }
 
 
 @app.get("/health")
