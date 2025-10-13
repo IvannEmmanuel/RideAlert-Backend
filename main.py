@@ -8,6 +8,7 @@ from app.routes.notifications_router import router as notifications_router
 from app.routes.iot_devices import router as iot_router
 from app.routes.fleets import router as fleets_router
 from app.routes.email_verification import router as email_router
+from app.routes.route_assignment import router as route_assignment_router
 from app.routes import predict
 from app.routes import models
 import app.routes.declared_routes as declared_routes
@@ -96,6 +97,7 @@ app.include_router(iot_router)
 app.include_router(fleets_router)
 app.include_router(email_router)
 app.include_router(declared_routes.router)
+app.include_router(route_assignment_router)
 # Include other routers as needed
 
 
