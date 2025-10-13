@@ -13,8 +13,6 @@ VEHICLE_UNAVAILABLE = "unavailable"
 def background_status_checker():
     while True:
         now_ms = int(time.time() * 1000)
-        print(
-            f"[StatusChecker] --- Checking IoT device statuses at {now_ms} ---")
         iot_devices = db.iot_devices.find({})
         for device in iot_devices:
             # Ensure device_id is ObjectId
@@ -36,36 +34,20 @@ def background_status_checker():
                     last_log_ts = int(ts.timestamp() * 1000)
                 elif isinstance(ts, int):
                     last_log_ts = ts
-            print(
-                f"[StatusChecker] Device {device_id}: last_tracking_log_ts={last_log_ts}, is_active={is_active}")
             # If latest log timestamp is recent, set device to active
             if last_log_ts is not None and now_ms - last_log_ts <= INACTIVITY_THRESHOLD_MS:
-                print(
-                    f"[StatusChecker] Device {device_id} is ACTIVE (last log {last_log_ts}, now {now_ms}, diff {now_ms - last_log_ts} ms)")
                 if is_active != "active":
-                    print(
-                        f"[StatusChecker] Setting device {device_id} to active.")
                     db.iot_devices.update_one(
                         {"_id": device_id}, {"$set": {"is_active": "active"}})
             elif last_log_ts is None:
-                print(
-                    f"[StatusChecker] Device {device_id} has no tracking_logs.")
                 if is_active != "inactive":
-                    print(
-                        f"[StatusChecker] Setting device {device_id} to inactive (no logs).")
                     db.iot_devices.update_one(
                         {"_id": device_id}, {"$set": {"is_active": "inactive"}})
             else:
-                print(
-                    f"[StatusChecker] Device {device_id} is INACTIVE (last log {last_log_ts}, now {now_ms}, diff {now_ms - last_log_ts} ms)")
                 if is_active != "inactive":
-                    print(
-                        f"[StatusChecker] Setting device {device_id} to inactive.")
                     db.iot_devices.update_one(
                         {"_id": device_id}, {"$set": {"is_active": "inactive"}})
 
-        print(
-            f"[StatusChecker] --- Updating vehicles linked to inactive IoT devices ---")
         inactive_devices = db.iot_devices.find({"is_active": "inactive"})
         for device in inactive_devices:
             raw_vehicle_id = device.get("vehicle_id")
@@ -82,20 +64,13 @@ def background_status_checker():
             # Already ObjectId
             elif isinstance(raw_vehicle_id, ObjectId):
                 vehicle_id = raw_vehicle_id
-            print(
-                f"[StatusChecker] Inactive device {device.get('_id')}, vehicle_id={vehicle_id} (type={type(vehicle_id)})")
             if vehicle_id:
-                print(
-                    f"[StatusChecker] Setting vehicle {vehicle_id} status to unavailable.")
                 result = db.vehicles.update_one(
                     {"_id": vehicle_id},
                     {"$set": {"status": VEHICLE_UNAVAILABLE,
                               "status_detail": VEHICLE_UNAVAILABLE}}
                 )
-                print(
-                    f"[StatusChecker] Vehicle update matched: {result.matched_count}, modified: {result.modified_count}, query _id type: {type(vehicle_id)}")
-        print(f"[StatusChecker] --- Sleeping for 30 seconds ---\n")
-        time.sleep(30)  # Run every 30 seconds
+        time.sleep(60)  # Run every 60 seconds
 
 
 def start_background_status_checker():
