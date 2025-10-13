@@ -236,9 +236,9 @@ async def update_iot_device(device_id: str, payload: dict = Body(...), current_u
             raise HTTPException(status_code=404, detail="IoT device not found")
 
         update_fields = {}
-    allowed_fields = ["is_active", "last_updated", "vehicle_id",
-        "device_name", "device_model", "company_name", "notes"]
-       for field in allowed_fields:
+        allowed_fields = ["is_active", "last_updated", "vehicle_id",
+                         "device_name", "device_model", "company_name", "notes"]
+        for field in allowed_fields:
             if field in payload:
                 update_fields[field] = payload[field]
 
@@ -246,7 +246,8 @@ async def update_iot_device(device_id: str, payload: dict = Body(...), current_u
             raise HTTPException(
                 status_code=400, detail="No valid fields to update")
 
-    update_fields["last_updated"] = int(datetime.utcnow().timestamp() * 1000)
+        update_fields["last_updated"] = int(
+            datetime.utcnow().timestamp() * 1000)
 
        if "vehicle_id" in update_fields and update_fields["vehicle_id"]:
             vehicle = vehicle_collection.find_one(
