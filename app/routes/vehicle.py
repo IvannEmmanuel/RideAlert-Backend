@@ -9,6 +9,7 @@ from app.schemas.vehicle import VehicleTrackResponse, Location, VehicleStatus, V
 from app.dependencies.roles import user_required, admin_required, user_or_admin_required, super_and_admin_required
 from bson import ObjectId
 from app.database import vehicle_collection, tracking_logs_collection, user_collection, notification_logs_collection
+from app.database import get_fleets_collection
 from pydantic import BaseModel
 from fastapi import Body
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
@@ -562,6 +563,103 @@ def get_all_vehicles(fleet_id: str, current_user: dict = Depends(user_or_admin_r
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Error retrieving vehicles: {str(e)}")
+
+
+
+@router.get("/count/verified")
+def count_verified_fleet_vehicles(current_user: dict = Depends(super_and_admin_required)):
+    """
+    Return the total count of vehicle documents that belong to verified fleets.
+
+    Verified fleets are considered those with `role` == 'admin' and `is_active` == True.
+    """
+    try:
+        fleets_col = get_fleets_collection
+
+        # Find all verified fleets and grab their _id values
+        verified_cursor = fleets_col.find({"role": "admin", "is_active": True}, {"_id": 1})
+        verified_ids = [str(f.get("_id")) for f in verified_cursor]
+
+        if not verified_ids:
+            return {"verified_vehicle_count": 0}
+
+        # Vehicles may store fleet_id as ObjectId or string; build an $or query
+        from bson import ObjectId as _ObjectId
+        id_filters = []
+        for fid in verified_ids:
+            if _ObjectId.is_valid(fid):
+                id_filters.append({"fleet_id": _ObjectId(fid)})
+            id_filters.append({"fleet_id": fid})
+
+        query = {"$or": id_filters}
+        count = vehicle_collection.count_documents(query)
+        return {"verified_vehicle_count": count}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error counting verified vehicles: {str(e)}")
+
+
+@router.get("/counts")
+def get_vehicle_counts_by_fleet(current_user: dict = Depends(super_and_admin_required)):
+    """
+    Return vehicle counts grouped by fleet_id.
+
+    Response format:
+      { "counts": [ { "fleet_id": "<id>", "count": 12 }, ... ] }
+
+    This handles fleet_id stored as ObjectId or string by converting to string in aggregation.
+    """
+    try:
+        # Use aggregation to group vehicles by fleet_id (string)
+        pipeline = [
+            {"$group": {"_id": {"$toString": "$fleet_id"}, "count": {"$sum": 1}}},
+        ]
+        agg = list(vehicle_collection.aggregate(pipeline))
+        counts = [{"fleet_id": item["_id"], "count": item["count"]} for item in agg]
+        return {"counts": counts}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error aggregating vehicle counts: {str(e)}")
+
+
+@router.get("/stats/counts")
+def get_vehicle_counts_by_fleet_stats(current_user: dict = Depends(super_and_admin_required)):
+    """
+    Non-conflicting stats route: Return vehicle counts grouped by fleet_id.
+    Same response as /counts but placed under /stats to avoid path collision.
+    """
+    try:
+        pipeline = [
+            {"$group": {"_id": {"$toString": "$fleet_id"}, "count": {"$sum": 1}}},
+        ]
+        agg = list(vehicle_collection.aggregate(pipeline))
+        counts = [{"fleet_id": item["_id"], "count": item["count"]} for item in agg]
+        return {"counts": counts}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error aggregating vehicle counts: {str(e)}")
+
+
+@router.get("/stats/verified")
+def count_verified_fleet_vehicles_stats(current_user: dict = Depends(super_and_admin_required)):
+    """
+    Non-conflicting stats route: Return total count of vehicles for verified fleets.
+    """
+    try:
+        fleets_col = get_fleets_collection
+        verified_cursor = fleets_col.find({"role": "admin", "is_active": True}, {"_id": 1})
+        verified_ids = [str(f.get("_id")) for f in verified_cursor]
+        if not verified_ids:
+            return {"verified_vehicle_count": 0}
+        from bson import ObjectId as _ObjectId
+        id_filters = []
+        for fid in verified_ids:
+            if _ObjectId.is_valid(fid):
+                id_filters.append({"fleet_id": _ObjectId(fid)})
+            id_filters.append({"fleet_id": fid})
+        query = {"$or": id_filters}
+        count = vehicle_collection.count_documents(query)
+        return {"verified_vehicle_count": count}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error counting verified vehicles: {str(e)}")
 
 
 @router.get("/track/{id}", response_model=VehicleTrackResponse)
