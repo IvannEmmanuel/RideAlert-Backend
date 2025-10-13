@@ -44,6 +44,63 @@ class FleetConnectionManager:
                 except Exception:
                     self.disconnect(connection, fleet_id)
 
+class RoleBasedConnectionManager:
+    def __init__(self):
+        self.active_connections: Dict[str, List[WebSocket]] = {
+            "superadmin": [],
+            "admin": [],
+            "all": []
+        }
+
+    async def connect(self, websocket: WebSocket, user_role: str = "all"):
+        await websocket.accept()
+        if user_role in self.active_connections:
+            self.active_connections[user_role].append(websocket)
+        self.active_connections["all"].append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        for role in self.active_connections:
+            if websocket in self.active_connections[role]:
+                self.active_connections[role].remove(websocket)
+
+    async def broadcast_to_role(self, message: dict, role: str):
+        disconnected = []
+        print(f"📢 DEBUG: Broadcasting to {role} role. Connected clients: {len(self.active_connections.get(role, []))}")
+        
+        for websocket in self.active_connections.get(role, []):
+            try:
+                # Use send_json instead of send_text for consistency
+                await websocket.send_json(message)
+                print(f"✅ DEBUG: Successfully sent to {role} client")
+            except Exception as e:
+                print(f"❌ DEBUG: Failed to send to {role} client: {str(e)}")
+                disconnected.append(websocket)
+        
+        # Clean up disconnected clients
+        for websocket in disconnected:
+            self.disconnect(websocket)
+
+    async def broadcast(self, message: dict):
+        disconnected = []
+        for role_connections in self.active_connections.values():
+            for websocket in role_connections[:]:
+                try:
+                    await websocket.send_json(message)
+                except Exception:
+                    disconnected.append(websocket)
+        
+        # Clean up disconnected clients
+        for websocket in disconnected:
+            self.disconnect(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        for role in self.active_connections:
+            if websocket in self.active_connections[role]:
+                self.active_connections[role].remove(websocket)
+        for role in self.active_connections:
+            if websocket in self.active_connections[role]:
+                self.active_connections[role].remove(websocket)
+
 # Separate managers for different endpoints
 fleet_count_manager = ConnectionManager()  # For /fleets/ws/count-fleets
 fleet_all_manager = ConnectionManager()    # For /fleets/ws/all
@@ -56,3 +113,4 @@ iot_device_fleet_manager = FleetConnectionManager() # For /iot_devices/ws/fleet/
 stats_count_manager = ConnectionManager()  # For /stats/count WebSocket
 stats_verified_manager = ConnectionManager()  # For /stats/verified WebSocket
 routes_all_manager = ConnectionManager()  # For /declared_routes/ws/routes (superadmin real-time updates)
+notification_manager = RoleBasedConnectionManager()  # For role-based notifications
