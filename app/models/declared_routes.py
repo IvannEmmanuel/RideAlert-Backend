@@ -12,3 +12,4 @@ class DeclaredRouteModel(BaseModel):
     landmark_details_start: str
     landmark_details_end: str
     route_geojson: Optional[dict] = None
+    company_name: str

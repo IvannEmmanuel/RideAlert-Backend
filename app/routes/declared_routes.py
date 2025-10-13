@@ -1,7 +1,7 @@
 from app.models.declared_routes import DeclaredRouteModel
 from typing import List
 import json
-from app.database import get_declared_routes_collection
+from app.database import get_declared_routes_collection, get_fleets_collection
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
 from fastapi import Path
 from app.dependencies.roles import super_and_admin_required
@@ -83,5 +83,25 @@ async def upload_declared_route(
         }
         result = get_declared_routes_collection.insert_one(data)
         return {"inserted_id": str(result.inserted_id)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/all/routes", response_model=List[DeclaredRouteModel])
+async def get_all_declared_routes(current_user: dict = Depends(super_and_admin_required)):
+    try:
+        routes = list(get_declared_routes_collection.find())
+        
+        # Get all company names - convert both to string for matching
+        fleets = list(get_fleets_collection.find({}, {"_id": 1, "company_name": 1}))
+        company_map = {str(fleet["_id"]): fleet["company_name"] for fleet in fleets}
+        
+        # Add company names to routes
+        for route in routes:
+            route["_id"] = str(route["_id"])
+            # Convert company_id to string for lookup
+            company_id_str = str(route["company_id"])
+            route["company_name"] = company_map.get(company_id_str, "Unknown Company")
+            
+        return [DeclaredRouteModel(**route) for route in routes]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
