@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Body, Depends, WebSocket, WebSocketDisconnect, Form, File, UploadFile #Form file uploadfile added
 from app.models.fleets import fleets
 from app.schemas.fleets import FleetCreate, FleetPublic
-from app.database import get_fleets_collection
+from app.database import get_fleets_collection, vehicle_collection
 from bson import ObjectId, Binary #binary added
 from datetime import datetime
 from typing import List, Dict, Optional
@@ -42,13 +42,28 @@ def serialize_datetime(obj):
 async def broadcast_fleet_list():
     """Helper function to broadcast the full fleet list to all connected /ws/all clients."""
     collection = get_fleets_collection
-    fleet_docs = collection.find({"role": {"$ne": "superadmin"}})
+    fleet_docs = list(collection.find({"role": {"$ne": "superadmin"}}))
+
+    # Build a map of vehicle counts per fleet_id (stringified) using aggregation for performance
+    try:
+        counts_cursor = vehicle_collection.aggregate([
+            {"$group": {"_id": {"$toString": "$fleet_id"}, "count": {"$sum": 1}}}
+        ])
+        counts_map = {doc["_id"]: doc["count"] for doc in counts_cursor}
+    except Exception:
+        # Fallback: empty map on any aggregation error
+        counts_map = {}
+
     fleets_list = [
         {
-            key: serialize_datetime(value) if isinstance(value, (datetime, ObjectId)) else value
-            for key, value in fleets(f).items()
+            **{
+                key: serialize_datetime(value) if isinstance(value, (datetime, ObjectId)) else value
+                for key, value in fleets(f).items()
+            },
+            "vehicle_count": counts_map.get(str(f.get("_id")), 0)
         } for f in fleet_docs
     ]
+
     await fleet_all_manager.broadcast({"fleets": fleets_list})
 
 async def broadcast_fleet_details(fleet_id: str):
@@ -61,6 +76,17 @@ async def broadcast_fleet_details(fleet_id: str):
             key: serialize_datetime(value) if isinstance(value, (datetime, ObjectId)) else value
             for key, value in fleet_data.items()
         }
+        # Attach total vehicles for this fleet (handle string/ObjectId stored fleet_id)
+        try:
+            try:
+                oid = ObjectId(fleet_id)
+                total = vehicle_collection.count_documents({"$or": [{"fleet_id": oid}, {"fleet_id": fleet_id}]})
+            except Exception:
+                total = vehicle_collection.count_documents({"fleet_id": fleet_id})
+        except Exception:
+            total = 0
+
+        serialized_data["vehicle_count"] = total
         await fleet_details_manager.broadcast(serialized_data, fleet_id)
 
 # @router.post("/", response_model=FleetPublic)
