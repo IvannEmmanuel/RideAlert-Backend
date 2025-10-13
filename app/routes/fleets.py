@@ -406,8 +406,8 @@ async def delete_fleet(fleet_id: str):
 
     return {"message": "Fleet deleted"}
 
-@router.patch("/{fleet_id}/approve", dependencies=[Depends(super_admin_required)])
-async def approve_fleet(fleet_id: str):
+@router.patch("/{fleet_id}/approve")
+async def approve_fleet(fleet_id: str, current_user: dict = Depends(super_admin_required)):
     """
     Approve a fleet registration by setting its role to 'admin' and updating timestamps.
     Only accessible by superadmin.
@@ -418,9 +418,12 @@ async def approve_fleet(fleet_id: str):
         raise HTTPException(status_code=400, detail="Invalid fleet ID format")
 
     now = datetime.utcnow()
+    # Record approver information (use email if available, otherwise user_id)
+    approver = current_user.get("email") or current_user.get("user_id") or current_user.get("id")
+    update_payload = {"role": "admin", "last_updated": now, "approved_by": approver, "approved_in": now}
     result = collection.update_one(
         {"_id": ObjectId(fleet_id)},
-        {"$set": {"role": "admin", "last_updated": now}}
+        {"$set": update_payload}
     )
 
     if result.matched_count == 0:
