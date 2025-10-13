@@ -237,7 +237,7 @@ async def update_iot_device(device_id: str, payload: dict = Body(...), current_u
 
         update_fields = {}
         allowed_fields = ["is_active", "last_updated", "vehicle_id",
-                         "device_name", "device_model", "company_name", "notes"]
+                          "device_name", "device_model", "company_name", "notes"]
         for field in allowed_fields:
             if field in payload:
                 update_fields[field] = payload[field]
@@ -249,7 +249,7 @@ async def update_iot_device(device_id: str, payload: dict = Body(...), current_u
         update_fields["last_updated"] = int(
             datetime.utcnow().timestamp() * 1000)
 
-       if "vehicle_id" in update_fields and update_fields["vehicle_id"]:
+        if "vehicle_id" in update_fields and update_fields["vehicle_id"]:
             vehicle = vehicle_collection.find_one(
                 {"_id": ObjectId(update_fields["vehicle_id"])})
             if not vehicle:
@@ -332,7 +332,7 @@ async def delete_iot_device(device_id: str, current_user: Dict = Depends(super_a
         raise HTTPException(status_code=400, detail="Invalid device ID format")
 
 
-#NEWLY ADDED
+# NEWLY ADDED
 # Add this new endpoint to your iot-device-router.js
 @router.get("/fleet/{fleet_id}", response_model=List[IoTDevicePublic])
 async def get_fleet_iot_devices(fleet_id: str, current_user: Dict = Depends(admin_required)):
