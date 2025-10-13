@@ -353,7 +353,6 @@ async def predict(request: PredictionRequest):
             asyncio.create_task(
                 broadcast_prediction(
                     device_id=request.device_id,
-                    vehicle_id=None,  # let websocket handler resolve vehicle _id from device_id
                     fleet_id=request.fleet_id,
                     prediction_data=response_data,
                     # Broadcast raw IoT payload using aliases (e.g., speedMps)
@@ -365,7 +364,7 @@ async def predict(request: PredictionRequest):
         except Exception as e:
             print(f"⚠️ Warning: Failed to broadcast prediction: {e}")
 
-        # Update vehicle location in the vehicles collection with snapped coordinates and last_updated timestamp
+        # Update vehicle location in the vehicles collection with snapped coordinates
         try:
             dev_id = str(request.device_id).strip()
             filter_query = {"$or": [{"device_id": dev_id}]}
@@ -378,9 +377,7 @@ async def predict(request: PredictionRequest):
                     "$set": {
                         "location": {
                             "latitude": float(snapped_lat),
-                            "longitude": float(snapped_lng),
-                            # Unix timestamp in ms
-                            "last_updated": int(time.time() * 1000)
+                            "longitude": float(snapped_lng)
                         }
                     }
                 }
