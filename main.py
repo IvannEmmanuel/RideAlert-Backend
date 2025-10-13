@@ -36,6 +36,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ Background loader setup warning: {e}")
 
+    # Start background status checker
+    try:
+        start_background_status_checker()
+        print("✅ Background status checker started")
+        logger.info("✅ Background status checker started")
+    except Exception as e:
+        print(f"⚠️ Background status checker startup warning: {e}")
+        logger.error(f"⚠️ Background status checker startup warning: {e}")
+
     # Start proximity checker
     try:
         proximity_task = asyncio.create_task(start_proximity_checker())
