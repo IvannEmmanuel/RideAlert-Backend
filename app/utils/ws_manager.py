@@ -55,3 +55,4 @@ iot_device_all_manager = ConnectionManager() # For /iot_devices/ws/all
 iot_device_fleet_manager = FleetConnectionManager() # For /iot_devices/ws/fleet/{fleet_id} #NEWLY ADDED
 stats_count_manager = ConnectionManager()  # For /stats/count WebSocket
 stats_verified_manager = ConnectionManager()  # For /stats/verified WebSocket
+routes_all_manager = ConnectionManager()  # For /declared_routes/ws/routes (superadmin real-time updates)
