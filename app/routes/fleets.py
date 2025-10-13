@@ -354,6 +354,26 @@ def get_fleet(fleet_id: str):
         raise HTTPException(status_code=404, detail="Fleet not found")
     return fleets(fleet_doc)
 
+@router.get("/code/{company_code}")
+async def get_fleet_by_code(company_code: str):
+    """
+    Get a fleet by company code (used for route registration)
+    """
+    try:
+        collection = get_fleets_collection
+        fleet = collection.find_one({"company_code": company_code})
+        
+        if not fleet:
+            raise HTTPException(status_code=404, detail="Fleet not found")
+        
+        # Convert ObjectId to string for JSON serialization
+        fleet["_id"] = str(fleet["_id"])
+        
+        return fleet
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.patch("/{fleet_id}", response_model=FleetPublic)
 async def update_fleet(fleet_id: str, payload: dict = Body(...)):
     """
