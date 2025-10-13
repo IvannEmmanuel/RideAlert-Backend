@@ -53,3 +53,5 @@ vehicle_all_manager = FleetConnectionManager() # For /vehicles/ws/vehicles/all/{
 fleet_details_manager = FleetConnectionManager() # For /fleets/{fleet_id}/ws
 iot_device_all_manager = ConnectionManager() # For /iot_devices/ws/all
 iot_device_fleet_manager = FleetConnectionManager() # For /iot_devices/ws/fleet/{fleet_id} #NEWLY ADDED
+stats_count_manager = ConnectionManager()  # For /stats/count WebSocket
+stats_verified_manager = ConnectionManager()  # For /stats/verified WebSocket
