@@ -20,6 +20,7 @@ class IoTDeviceBase(BaseModel):
     device_model: Optional[IoTDeviceModel] = None
     company_name: Optional[str] = None
     notes: Optional[str] = None
+    last_updated: Optional[int] = None  # Unix timestamp (ms) of last update
 
 
 class IoTDeviceCreate(IoTDeviceBase):
