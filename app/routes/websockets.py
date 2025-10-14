@@ -15,8 +15,6 @@ logger = logging.getLogger(__name__)
 ws_router = APIRouter(tags=["WebSocket"])
 
 vehicle_subscribers: Dict[str, List[WebSocket]] = {}
-# device_id -> subscribers
-device_subscribers: Dict[str, List[WebSocket]] = {}
 # Add new subscribers for vehicle location updates via IoT predictions
 # vehicle_id -> subscribers (since each vehicle has one paired IoT device)
 # Global vehicle location feed
@@ -395,38 +393,6 @@ async def vehicle_location_ws(websocket: WebSocket, vehicle_id: str):
         print(f"Vehicle {vehicle_id} location monitoring client disconnected")
 
 
-@ws_router.websocket("/ws/device/{device_id}/location")
-async def device_location_ws(websocket: WebSocket, device_id: str):
-    """Subscribe to location updates for a specific IoT device_id."""
-    await websocket.accept()
-
-    try:
-        # register
-        if device_id not in device_subscribers:
-            device_subscribers[device_id] = []
-        device_subscribers[device_id].append(websocket)
-
-        # send initial confirmation
-        await websocket.send_json({
-            "type": "connection_established",
-            "device_id": device_id,
-            "message": f"Monitoring location updates from device {device_id}",
-            "timestamp": datetime.utcnow().isoformat()
-        })
-
-        while True:
-            await websocket.receive_text()
-
-    except WebSocketDisconnect:
-        if device_id in device_subscribers:
-            subs = device_subscribers[device_id]
-            if websocket in subs:
-                subs.remove(websocket)
-                if not subs:
-                    device_subscribers.pop(device_id)
-        print(f"Device {device_id} location monitoring client disconnected")
-
-
 # New WebSocket endpoint for all vehicle location monitoring
 @ws_router.websocket("/ws/vehicles/locations")
 async def all_vehicle_locations_ws(websocket: WebSocket):
@@ -456,87 +422,3 @@ async def all_vehicle_locations_ws(websocket: WebSocket):
 
 
 # Function to broadcast vehicle location updates (we'll call this from predict.py)
-async def broadcast_prediction(device_id: str, vehicle_id: Optional[str], fleet_id: str, prediction_data: dict, ml_request_data: dict, response_time_ms: float):
-    """Broadcast vehicle location update from IoT device ML prediction to WebSocket subscribers"""
-
-    # Try to resolve vehicle_id from device_id if not provided
-    resolved_vehicle_id = vehicle_id
-    if not resolved_vehicle_id:
-        try:
-            # Try matching as string first, then as ObjectId
-            query = {"$or": [{"device_id": device_id}]}
-            try:
-                if ObjectId.is_valid(device_id):
-                    query["$or"].append({"device_id": ObjectId(device_id)})
-            except Exception:
-                # ignore ObjectId conversion errors
-                pass
-
-            vehicle_doc = vehicle_collection.find_one(query)
-            if vehicle_doc:
-                resolved_vehicle_id = str(vehicle_doc.get("_id"))
-            else:
-                # No vehicle mapping found for this device_id
-                resolved_vehicle_id = None
-        except Exception as e:
-            print(
-                f"Error resolving vehicle_id from device_id {device_id}: {e}")
-            resolved_vehicle_id = None
-
-    # Prepare simplified broadcast message - vehicle location update
-    broadcast_message = {
-        "type": "location_update",
-        "timestamp": datetime.utcnow().isoformat(),
-        "vehicle_id": resolved_vehicle_id or device_id,
-        "device_id": device_id,
-        "latitude": prediction_data.get("latitude"),
-        "longitude": prediction_data.get("longitude")
-    }
-
-    # Broadcast to vehicle-specific subscribers (resolve to vehicle id if we found one)
-    vehicle_subs = []
-    if resolved_vehicle_id:
-        vehicle_subs = vehicle_subscribers.get(resolved_vehicle_id, [])
-    else:
-        # Fallback: allow subscribers keyed by device_id (if frontend ever uses that)
-        vehicle_subs = vehicle_subscribers.get(device_id, [])
-    disconnected_subs = []
-
-    for ws in vehicle_subs:
-        try:
-            await ws.send_json(broadcast_message)
-        except Exception as e:
-            print(f"Error sending to vehicle {vehicle_id} subscriber: {e}")
-            disconnected_subs.append(ws)
-
-    # Remove disconnected subscribers
-    for ws in disconnected_subs:
-        vehicle_subs.remove(ws)
-
-    # Broadcast to global vehicle location subscribers
-    global_disconnected = []
-    for ws in all_vehicle_updates_subscribers:
-        try:
-            await ws.send_json(broadcast_message)
-        except Exception as e:
-            print(f"Error sending to global vehicle location subscriber: {e}")
-            global_disconnected.append(ws)
-
-    # Remove disconnected global subscribers
-    for ws in global_disconnected:
-        all_vehicle_updates_subscribers.remove(ws)
-
-    # Broadcast to device-specific subscribers as well
-    try:
-        device_subs = device_subscribers.get(device_id, [])
-        device_disconnected = []
-        for ws in device_subs:
-            try:
-                await ws.send_json(broadcast_message)
-            except Exception as e:
-                print(f"Error sending to device {device_id} subscriber: {e}")
-                device_disconnected.append(ws)
-        for ws in device_disconnected:
-            device_subs.remove(ws)
-    except Exception:
-        pass

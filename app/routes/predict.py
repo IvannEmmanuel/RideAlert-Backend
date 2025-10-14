@@ -319,8 +319,15 @@ async def predict(request: PredictionRequest):
                 # Look up vehicle by device_id
                 vehicle = db.vehicles.find_one(
                     {"device_id": request.device_id})
+                route_id = None
                 if vehicle:
-                    route_id = vehicle.get("route_id")
+                    # Use new format: current_route.route_id
+                    current_route = vehicle.get("current_route")
+                    if current_route and "route_id" in current_route:
+                        route_id = current_route["route_id"]
+                    # Fallback to top-level route_id if needed
+                    if not route_id:
+                        route_id = vehicle.get("route_id")
             route_line = await get_route_line_from_db(route_id=route_id)
             if route_line:
                 snapped_lat, snapped_lng = snap_to_route(
@@ -343,26 +350,6 @@ async def predict(request: PredictionRequest):
             "longitude": snapped_lng,
             "snapped": snapped
         }
-
-        # Broadcast prediction to WebSocket subscribers
-        try:
-            # Import here to avoid circular imports
-            from app.routes.websockets import broadcast_prediction
-
-            # Create a background task to broadcast (so it doesn't slow down the HTTP response)
-            asyncio.create_task(
-                broadcast_prediction(
-                    device_id=request.device_id,
-                    fleet_id=request.fleet_id,
-                    prediction_data=response_data,
-                    # Broadcast raw IoT payload using aliases (e.g., speedMps)
-                    ml_request_data=request.dict(by_alias=True),
-                    response_time_ms=response_time_ms
-                )
-            )
-            # print(f"📡 Broadcasting vehicle location update from {request.vehicle_id}")
-        except Exception as e:
-            print(f"⚠️ Warning: Failed to broadcast prediction: {e}")
 
         # Update vehicle location in the vehicles collection with snapped coordinates
         try:
