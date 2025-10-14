@@ -1,11 +1,11 @@
 def tracking_class(tracking_log) -> dict:
-    return {
+
+    result = {
         "id": str(tracking_log["_id"]),
-        # Foreign Key reference to vehicle._id
-        "vehicle_id": str(tracking_log["vehicle_id"]),
-        "fleet_id": str(tracking_log["fleet_id"]),
-        "device_id": str(tracking_log["fleet_id"]),
-        "speed": str(tracking_log["speed"]),
+        "vehicle_id": str(tracking_log.get("vehicle_id", "")),
+        "fleet_id": str(tracking_log.get("fleet_id", "")),
+        "device_id": str(tracking_log.get("device_id", "")),
+        "SpeedMps": tracking_log.get("SpeedMps"),
         "gps_data": [
             {
                 "latitude": entry["latitude"],
@@ -15,3 +15,7 @@ def tracking_class(tracking_log) -> dict:
             for entry in tracking_log.get("gps_data", [])
         ]
     }
+    # Add moved_point if present
+    if "moved_point" in tracking_log:
+        result["moved_point"] = tracking_log["moved_point"]
+    return result

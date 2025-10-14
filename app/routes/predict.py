@@ -1,15 +1,89 @@
+import inspect
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
-from app.utils.background_loader import background_loader
-from app.utils.tracking_logs import insert_gps_log
-from app.database import db
-from typing import Optional
-from datetime import datetime
-from bson import ObjectId
-import math
-import os
-import time
 import asyncio
+import time
+import os
+import math
+from bson import ObjectId
+from datetime import datetime
+from typing import Optional
+from app.database import db
+from app.utils.tracking_logs import insert_gps_log
+from app.utils.background_loader import background_loader
+from pydantic import BaseModel, Field, root_validator
+import time as _time
+from shapely.geometry import LineString, Point
+import threading
+
+# Route cache and lock
+_route_cache = {"line": None, "last_refresh": 0}
+_route_cache_lock = threading.Lock()
+
+
+async def get_route_line_from_db(route_id: Optional[str] = None):
+    """
+    Load and cache the route LineString from MongoDB (db.declared_routes) for a specific route_id, refreshing every hour.
+    Returns a Shapely LineString or None if not available.
+    """
+    global _route_cache
+    now = _time.time()
+    cache_key = route_id if route_id else "default"
+    with _route_cache_lock:
+        cache_entry = _route_cache.get(cache_key)
+        if cache_entry and cache_entry["line"] is not None and now - cache_entry["last_refresh"] < 3600:
+            return cache_entry["line"]
+        try:
+            query = {}
+            if route_id:
+                if ObjectId.is_valid(route_id):
+                    query["_id"] = ObjectId(route_id)
+                else:
+                    query["_id"] = route_id
+            else:
+                # fallback: no route_id provided
+                print("⚠️ No route_id provided to get_route_line_from_db.")
+                _route_cache[cache_key] = {"line": None, "last_refresh": now}
+                return None
+            route_doc = db.declared_routes.find_one(query)
+            if not route_doc:
+                print(f"⚠️ No route found for query: {query}")
+                _route_cache[cache_key] = {"line": None, "last_refresh": now}
+                return None
+            try:
+                features = route_doc["route_geojson"].get("features", [])
+                line_coords = None
+                for feature in features:
+                    geom = feature.get("geometry", {})
+                    if geom.get("type") == "LineString" and "coordinates" in geom:
+                        line_coords = geom["coordinates"]
+                        break
+                if not line_coords or not isinstance(line_coords, list):
+                    print("⚠️ No LineString coordinates found in route_geojson.")
+                    _route_cache[cache_key] = {
+                        "line": None, "last_refresh": now}
+                    return None
+                line = LineString([(lon, lat) for lon, lat in line_coords])
+                _route_cache[cache_key] = {"line": line, "last_refresh": now}
+                print(
+                    f"✅ Loaded geomap from DB with {len(line_coords)} points for route_id={route_id}")
+                return line
+            except Exception as e:
+                print(f"⚠️ Error parsing route_geojson: {e}")
+                _route_cache[cache_key] = {"line": None, "last_refresh": now}
+                return None
+        except Exception as e:
+            print(f"⚠️ Error loading route from DB: {e}")
+            _route_cache[cache_key] = {"line": None, "last_refresh": now}
+            return None
+
+
+def snap_to_route(lat: float, lon: float, route: LineString):
+    if route is None:
+        return lat, lon
+    point = Point(lon, lat)
+    nearest_point = route.interpolate(route.project(point))
+    return nearest_point.y, nearest_point.x
+
 
 router = APIRouter()
 
@@ -32,8 +106,12 @@ class PredictionRequest(BaseModel):
     BiasX: float
     BiasY: float
     BiasZ: float
-    # Accept IoT payload key 'speed' but expose field name 'Speed' to keep ML feature names consistent
-    Speed: float = Field(..., alias="speed")
+    # New: accept speed in meters per second from IoT as 'speedMps'.
+    # For backward compatibility, still accept legacy 'speed' (kph) via alias to Speed.
+    # We'll normalize to m/s for the ML feature 'Speed'.
+    SpeedMps: Optional[float] = Field(None, alias="speedMps")
+    # Legacy kph input; optional now. If provided, we'll convert to m/s.
+    Speed: Optional[float] = Field(None, alias="speed")
 
     # Option 1: Provide WLS ECEF coordinates directly (existing format)
     WlsPositionXEcefMeters: Optional[float] = None
@@ -53,6 +131,17 @@ class PredictionRequest(BaseModel):
     class Config:
         # Allow either field name ('Speed') or alias ('speed') in input payloads
         allow_population_by_field_name = True
+
+    # Accept capitalized keys from devices (e.g., "Speed" or "SpeedMps") by normalizing
+    @root_validator(pre=True)
+    def normalize_speed_keys(cls, values):
+        # Map "Speed" -> "speed" if alias not present
+        if "speed" not in values and "Speed" in values:
+            values["speed"] = values["Speed"]
+        # Map "SpeedMps" -> "speedMps" if alias not present
+        if "speedMps" not in values and "SpeedMps" in values:
+            values["speedMps"] = values["SpeedMps"]
+        return values
 
 
 def convert_latlon_to_ecef(latitude: float, longitude: float, altitude: float):
@@ -171,13 +260,32 @@ async def predict(request: PredictionRequest):
             wls_z = request.WlsPositionZEcefMeters
 
         # Prepare input data with the ECEF coordinates; keep field names (e.g., 'Speed') for ML features.
-        # NOTE: Do NOT use by_alias=True here; ML artifacts expect 'Speed' and logging reads 'Speed'/'speed'.
+        # We'll compute 'Speed' in meters per second, preferring 'speedMps' if provided,
+        # otherwise converting legacy 'speed' (kph) to m/s.
         input_data = request.dict()
 
         # Use the converted or provided ECEF coordinates
         input_data['WlsPositionXEcefMeters'] = wls_x
         input_data['WlsPositionYEcefMeters'] = wls_y
         input_data['WlsPositionZEcefMeters'] = wls_z
+
+        # Normalize speed to meters per second for ML feature 'Speed'
+        speed_mps: Optional[float] = None
+        try:
+            if request.SpeedMps is not None:
+                speed_mps = float(request.SpeedMps)
+            elif request.Speed is not None:
+                # Legacy kph -> m/s
+                speed_mps = float(request.Speed) / 3.6
+        except (TypeError, ValueError):
+            speed_mps = None
+
+        # Default to 0.0 if not provided to avoid model errors
+        if speed_mps is None:
+            speed_mps = 0.0
+
+        # ML artifacts expect feature named 'Speed' -> now defined as m/s
+        input_data['SpeedMps'] = speed_mps
 
         # Calculate derived features
         input_data['SignalQuality'] = input_data['Cn0DbHz'] * \
@@ -197,16 +305,43 @@ async def predict(request: PredictionRequest):
             input_data['WlsPositionYEcefMeters'],
             input_data['WlsPositionZEcefMeters']
         )
+
         corrected_lat = wls_lat + prediction[0]
         corrected_lng = wls_lng + prediction[1]
+
+        # --- Scalable route snapping integration ---
+        snapped_lat, snapped_lng = corrected_lat, corrected_lng
+        snapped = False
+        try:
+            # Try to get route_id from payload, else from vehicle entity
+            route_id = getattr(request, "route_id", None)
+            if not route_id:
+                # Look up vehicle by device_id
+                vehicle = db.vehicles.find_one(
+                    {"device_id": request.device_id})
+                if vehicle:
+                    route_id = vehicle.get("route_id")
+            route_line = await get_route_line_from_db(route_id=route_id)
+            if route_line:
+                snapped_lat, snapped_lng = snap_to_route(
+                    corrected_lat, corrected_lng, route_line)
+                snapped = True
+                print(
+                    f"✅ Snapped to route: ({snapped_lat}, {snapped_lng}) [route_id={route_id}]")
+            else:
+                print("⚠️ No route available, using raw corrected coordinates.")
+        except Exception as e:
+            print(f"⚠️ Route snapping failed: {e}")
 
         # Calculate response time
         response_time_ms = (time.time() - start_time) * 1000
 
         # Minimal response - only corrected coordinates
+
         response_data = {
-            "latitude": corrected_lat,
-            "longitude": corrected_lng
+            "latitude": snapped_lat,
+            "longitude": snapped_lng,
+            "snapped": snapped
         }
 
         # Broadcast prediction to WebSocket subscribers
@@ -220,7 +355,8 @@ async def predict(request: PredictionRequest):
                     device_id=request.device_id,
                     fleet_id=request.fleet_id,
                     prediction_data=response_data,
-                    ml_request_data=request.dict(),
+                    # Broadcast raw IoT payload using aliases (e.g., speedMps)
+                    ml_request_data=request.dict(by_alias=True),
                     response_time_ms=response_time_ms
                 )
             )
@@ -228,17 +364,20 @@ async def predict(request: PredictionRequest):
         except Exception as e:
             print(f"⚠️ Warning: Failed to broadcast prediction: {e}")
 
-        # Update vehicle location in the vehicles collection with corrected coordinates
+        # Update vehicle location in the vehicles collection with snapped coordinates
         try:
-            # Update the vehicle's location with corrected coordinates
-            # Set the entire location object to handle cases where location might be null
+            dev_id = str(request.device_id).strip()
+            filter_query = {"$or": [{"device_id": dev_id}]}
+            if ObjectId.is_valid(dev_id):
+                filter_query["$or"].append({"device_id": ObjectId(dev_id)})
+
             update_result = db.vehicles.update_one(
-                {"device_id": ObjectId(request.device_id)},
+                filter_query,
                 {
                     "$set": {
                         "location": {
-                            "latitude": corrected_lat,
-                            "longitude": corrected_lng
+                            "latitude": float(snapped_lat),
+                            "longitude": float(snapped_lng)
                         }
                     }
                 }
@@ -246,13 +385,12 @@ async def predict(request: PredictionRequest):
 
             if update_result.matched_count > 0:
                 print(
-                    f"🚗 Vehicle {request.device_id} location updated: lat={corrected_lat:.6f}, lng={corrected_lng:.6f}")
+                    f"🚗 Vehicle {request.device_id} snapped location updated: lat={snapped_lat:.6f}, lng={snapped_lng:.6f}")
             else:
                 print(
                     f"⚠️ Warning: Vehicle {request.device_id} not found in vehicles collection")
 
         except Exception as e:
-            # Don't fail the prediction response if vehicle update fails, but log the error
             print(f"⚠️ Warning: Failed to update vehicle location: {e}")
 
         # Log SUCCESSFUL ML prediction to tracking logs
@@ -267,8 +405,25 @@ async def predict(request: PredictionRequest):
                 "altitude": original_altitude  # Use original altitude, not corrected
             }
 
-            # Convert request to dict for logging (preserve field names like 'Speed')
-            ml_request_data = request.dict()
+            # Add moved (snapped) point based on declared routes
+            moved_point = {
+                "latitude": snapped_lat,
+                "longitude": snapped_lng
+            }
+
+            # Convert request to dict using aliases to store the original IoT payload (e.g., speedMps)
+            ml_request_data = request.dict(by_alias=True)
+            # Copy ECEF values into the iot_payload for full self-containment
+            ml_request_data["WlsPositionXEcefMeters"] = wls_x
+            ml_request_data["WlsPositionYEcefMeters"] = wls_y
+            ml_request_data["WlsPositionZEcefMeters"] = wls_z
+
+            # Prepare ECEF coordinates used by backend for logging
+            ecef_used = {
+                "WlsPositionXEcefMeters": wls_x,
+                "WlsPositionYEcefMeters": wls_y,
+                "WlsPositionZEcefMeters": wls_z,
+            }
 
             # Insert comprehensive tracking log for this SUCCESSFUL prediction
             log_id = insert_gps_log(
@@ -276,7 +431,9 @@ async def predict(request: PredictionRequest):
                 device_id=request.device_id,
                 fleet_id=request.fleet_id,
                 ml_request_data=ml_request_data,
-                corrected_coordinates=corrected_coordinates
+                corrected_coordinates=corrected_coordinates,
+                ecef_coordinates=ecef_used,
+                moved_point=moved_point
             )
 
             print(f"✅ Successful ML prediction logged with ID: {log_id}")

@@ -107,6 +107,9 @@ async def create_notification_log(log: NotificationLogCreate):
 
     user_fleet_key = f"{str(log.user_id)}:{str(log.fleet_id)}"  # user+fleet key
 
+    if not log.message or not log.message.strip():
+        raise HTTPException(status_code=400, detail="Message is required")
+
     # 🔔 Broadcast via WebSocket
     if user_fleet_key in user_fleet_notification_subscribers:
         for ws in user_fleet_notification_subscribers[user_fleet_key]:
@@ -136,33 +139,41 @@ async def create_notification_log(log: NotificationLogCreate):
 
 
 #para makita ang tanan nga notification sa specific na user.
-@router.get("/user/{user_id}", response_model=List[NotificationLogPublic])
-def get_user_notifications(user_id: str):
-    logs = notification_logs_collection.find({"user_id": ObjectId(user_id)})
-    return [notification_log_class(log) for log in logs]
+@router.get("/user/{user_id}/{fleet_id}", response_model=List[NotificationLogPublic])
+def get_user_notifications(user_id: str, fleet_id: str):
+    try:
+        user_obj_id = ObjectId(user_id)
+        fleet_obj_id = ObjectId(fleet_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid user_id or fleet_id format")
+
+    # Fetch all notifications for this user + fleet, even if vehicle_id is null
+    logs = notification_logs_collection.find({
+        "user_id": user_obj_id,
+        "fleet_id": fleet_obj_id
+    }).sort("createdAt", -1)  # newest first
+
+    # Filter out logs missing required fields
+    valid_logs = [log for log in logs if log.get("message")]  # Skip if no message
+    return [notification_log_class(log) for log in valid_logs]
 
 #to provide real-time updates from the /user/{user_id}
-@router.websocket("/user/{user_id}/ws")
-async def websocket_user_notifications(websocket: WebSocket, user_id: str):
+@router.websocket("/user/{user_id}/{fleet_id}/ws")
+async def websocket_user_notifications(websocket: WebSocket, user_id: str, fleet_id: str):
     await websocket.accept()
-    user_id_str = str(user_id)
+    user_fleet_key = f"{user_id}:{fleet_id}"
 
-    if user_id_str not in user_notification_subscribers:
-        user_notification_subscribers[user_id_str] = []
+    if user_fleet_key not in user_fleet_notification_subscribers:
+        user_fleet_notification_subscribers[user_fleet_key] = []
 
-    user_notification_subscribers[user_id_str].append(websocket)
-    print(f"WebSocket connected for user {user_id_str}")
+    user_fleet_notification_subscribers[user_fleet_key].append(websocket)
+    print(f"WebSocket connected for user+fleet {user_fleet_key}")
 
     try:
         while True:
-            await asyncio.sleep(1)  # keep connection alive
+            await asyncio.sleep(1)
     except WebSocketDisconnect:
-        print(f"WebSocket disconnected for user {user_id_str}")
-        user_notification_subscribers[user_id_str].remove(websocket)
-        if not user_notification_subscribers[user_id_str]:
-            del user_notification_subscribers[user_id_str]
-    except Exception as e:
-        logger.error(f"WebSocket error for user {user_id_str}: {e}")
-        user_notification_subscribers[user_id_str].remove(websocket)
-        if not user_notification_subscribers[user_id_str]:
-            del user_notification_subscribers[user_id_str]
+        print(f"WebSocket disconnected for {user_fleet_key}")
+        user_fleet_notification_subscribers[user_fleet_key].remove(websocket)
+        if not user_fleet_notification_subscribers[user_fleet_key]:
+            del user_fleet_notification_subscribers[user_fleet_key]

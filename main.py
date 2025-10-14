@@ -1,3 +1,4 @@
+from app.workers.background_status_checker import start_background_status_checker
 from fastapi import FastAPI
 from fastapi import Response
 from app.routes import user
@@ -6,25 +7,68 @@ from app.routes.websockets import ws_router
 from app.routes.notifications_router import router as notifications_router
 from app.routes.iot_devices import router as iot_router
 from app.routes.fleets import router as fleets_router
+from app.routes.email_verification import router as email_router
+from app.routes.route_assignment import router as route_assignment_router
 from app.routes import predict
 from app.routes import models
+import app.routes.declared_routes as declared_routes
 from fastapi.middleware.cors import CORSMiddleware
 from app.utils.background_loader import background_loader
 from contextlib import asynccontextmanager
+from app.workers.proximity_checker import start_proximity_checker, stop_proximity_checker
+import logging
+import asyncio
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global proximity_task
+
     # Startup
     print("🚀 FastAPI starting up...")
+
+    # Start background model loader
     try:
         background_loader.start_background_loading()
         print("📦 Background loading configured (models will load on-demand)")
     except Exception as e:
         print(f"⚠️ Background loader setup warning: {e}")
+
+    # Start background status checker
+    try:
+        start_background_status_checker()
+        print("✅ Background status checker started")
+        logger.info("✅ Background status checker started")
+    except Exception as e:
+        print(f"⚠️ Background status checker startup warning: {e}")
+        logger.error(f"⚠️ Background status checker startup warning: {e}")
+
+    # Start proximity checker
+    try:
+        proximity_task = asyncio.create_task(start_proximity_checker())
+        print("✅ Proximity checker started")
+    except Exception as e:
+        print(f"⚠️ Proximity checker startup warning: {e}")
+
     yield
+
     # Shutdown
     print("🔄 FastAPI shutting down...")
+
+    # Stop proximity checker
+    try:
+        stop_proximity_checker()
+        if proximity_task:
+            proximity_task.cancel()
+            try:
+                await proximity_task
+            except asyncio.CancelledError:
+                print("✅ Proximity checker stopped")
+    except Exception as e:
+        print(f"⚠️ Proximity checker shutdown warning: {e}")
 
 
 app = FastAPI(lifespan=lifespan)
@@ -36,10 +80,11 @@ app.add_middleware(
                    "https://ride-alert-admin-panel.vercel.app",
                    "http://localhost:5174",
                    "http://localhost:8081",
-                   "*"],
+                   "https://ridealertadminpanel.onrender.com"],
     allow_credentials=True,
     allow_methods=["*"],  # Allow all methods, adjust as needed
     allow_headers=["*"],  # Allow all headers, adjust as needed
+    expose_headers=["*"]  # Add this line
 )
 
 app.include_router(user.router)
@@ -50,12 +95,17 @@ app.include_router(predict.router)
 app.include_router(models.router)
 app.include_router(iot_router)
 app.include_router(fleets_router)
+app.include_router(email_router)
+app.include_router(declared_routes.router)
+app.include_router(route_assignment_router)
 # Include other routers as needed
 
 
 @app.get("/")
 def read_root():
-    return {"message": "Server is running"}
+    return {"message": "Server is running",
+            "proximity_checker": "active"
+            }
 
 
 @app.get("/health")
@@ -63,7 +113,8 @@ def health_check():
     """Health check endpoint for Railway deployment"""
     return {
         "status": "healthy",
-        "message": "RideAlert Backend is running"
+        "message": "RideAlert Backend is running",
+        "proximity_checker": "active"
     }
 
 
@@ -79,7 +130,8 @@ def server_status():
     model_status = background_loader.get_status()
     return {
         "server": "running",
-        "models": model_status
+        "models": model_status,
+        "proximity_checker": "running" if proximity_task and not proximity_task.done() else "stopped"
     }
 
 

@@ -3,57 +3,71 @@ from bson import ObjectId
 import time
 
 
-def insert_gps_log(db, device_id: str, fleet_id: str, ml_request_data: dict, corrected_coordinates: dict):
+def insert_gps_log(db, device_id: str, fleet_id: str, ml_request_data: dict, corrected_coordinates: dict, ecef_coordinates: dict | None = None, moved_point: dict | None = None):
     """
     Insert ML prediction log into MongoDB Atlas with complete sensor data structure
 
-    Expected Payload Before Prediction:
+    Expected Payload Before Prediction (Real NEO-6M GPS Structure):
     {
-        "Cn0DbHz": 57,                    # SNR (Signal-to-Noise Ratio)
-        "Svid": 28,                       # Satellite ID  
-        "SvElevationDegrees": 30,
-        "SvAzimuthDegrees": 16,
-        "IMU_MessageType": "UncalAccel",  # Use accel value for measurements
-        "MeasurementX": 0.7854004,
-        "MeasurementY": -0.6618652,
-        "MeasurementZ": -0.06811523,
-        "BiasX": 0.0,
-        "BiasY": 0.0,
-        "BiasZ": 0.0,
-        "Speed": 10.5,                    # Speed value (float). IoT may send as 'speed' (alias)
-        "raw_latitude": 8.585581,
-        "raw_longitude": 124.769386,
-        "raw_altitude": 3.0
+        "fleet_id": "fleet_001",          # Fleet identifier
+        "device_id": "device_001",        # IoT device identifier
+        "Cn0DbHz": 45.2,                  # Real NEO-6M SNR (Signal-to-Noise Ratio) 
+        "Svid": 12,                       # Real satellite ID (PRN number) from GPGSV
+        "SvElevationDegrees": 65,         # Real satellite elevation from NEO-6M GPGSV
+        "SvAzimuthDegrees": 285,          # Real satellite azimuth from NEO-6M GPGSV  
+        "IMU_MessageType": "UncalAccel",  # Accelerometer data type
+        "MeasurementX": 0.7854004,        # Real accelerometer X-axis (rounded to 7 decimals)
+        "MeasurementY": -0.6618652,       # Real accelerometer Y-axis (rounded to 7 decimals)
+        "MeasurementZ": -0.06811523,      # Real accelerometer Z-axis (rounded to 7 decimals)
+        "BiasX": 0.0,                     # X-axis bias (typically 0.0)
+        "BiasY": 0.0,                     # Y-axis bias (typically 0.0)
+        "BiasZ": 0.0,                     # Z-axis bias (typically 0.0)
+        "raw_latitude": 8.585581,         # Raw GPS latitude from NEO-6M
+        "raw_longitude": 124.769386,      # Raw GPS longitude from NEO-6M
+        "raw_altitude": 3.0,              # Raw GPS altitude from NEO-6M
+        "speed": 12.5                     # Raw speed from NEO-6M (gps_data['raw_speed'])
     }
 
-    MongoDB Document Structure Created:
+    MongoDB Document Structure Created (Non-redundant):
     {
         "_id": ObjectId("..."),
         "device_id": "iot_device_001",
         "fleet_id": "fleet_001",
-        "gps_data": {
-            "raw_coordinates": {
-                "latitude": 8.585581,    # Original raw GPS from IoT device
-                "longitude": 124.769386, # Original raw GPS from IoT device
-                "altitude": 3.0          # Original raw GPS from IoT device
-            },
-            "final_coordinates": {
-                "latitude": 8.585123,    # Final = WLS + ML offset prediction
-                "longitude": 124.769874  # Final = WLS + ML offset prediction
-                # Note: altitude is NOT corrected by ML (uses original raw altitude)
-            },
-            "cn0": 57                    # Carrier-to-noise ratio (Cn0DbHz/SNR)
+        "SpeedMps": 3.47,            # Top-level normalized speed in meters/second for ML
+
+        "iot_payload": {             # Complete NEO-6M GPS payload - ALL sensor data
+            "fleet_id": "fleet_001",     # Fleet ID (included in IoT payload)
+            "device_id": "device_001",   # Device ID (included in IoT payload)
+            "Cn0DbHz": 45.2,             # Real NEO-6M SNR from best satellite
+            "Svid": 12,                  # Real satellite PRN number from GPGSV
+            "SvElevationDegrees": 65,    # Real satellite elevation from NEO-6M
+            "SvAzimuthDegrees": 285,     # Real satellite azimuth from NEO-6M
+            "IMU_MessageType": "UncalAccel",
+            "MeasurementX": 0.7854004,   # Accelerometer X (rounded to 7 decimals)
+            "MeasurementY": -0.6618652,  # Accelerometer Y (rounded to 7 decimals)
+            "MeasurementZ": -0.06811523, # Accelerometer Z (rounded to 7 decimals)
+            "BiasX": 0.0, "BiasY": 0.0, "BiasZ": 0.0,
+            "raw_latitude": 8.585581,    # NEO-6M raw GPS latitude
+            "raw_longitude": 124.769386, # NEO-6M raw GPS longitude
+            "raw_altitude": 3.0,         # NEO-6M raw GPS altitude
+            "speed": 12.5                # NEO-6M raw speed (gps_data['raw_speed'])
         },
-        "imu_data": {
-            "MeasurementX": 0.7854004,     # From accelerometer 
-            "MeasurementY": -0.6618652,    # From accelerometer
-            "MeasurementZ": -0.06811523,   # From accelerometer
-            "BiasX": 0.0,                  # X-axis sensor offset
-            "BiasY": 0.0,                  # Y-axis sensor offset  
-            "BiasZ": 0.0,                  # Z-axis sensor offset
-            "IMU_MessageType": "UncalAccel" # Accelerometer data type
+
+        "ml_corrected_coordinates": {     # Only the ML-enhanced output (non-redundant)
+            "latitude": 8.585123,         # Raw GPS + ML correction
+            "longitude": 124.769874       # Raw GPS + ML correction
+            # Note: Altitude not corrected (use raw_altitude from iot_payload)
         },
-        "timestamp": 1724717852000  # Milliseconds since epoch
+
+        # ECEF coordinates actually used by the backend for WLS, provided here
+        # even if the IoT payload didn't include them (payload fields may be null)
+        "wls_ecef": {
+            "WlsPositionXEcefMeters": 1100.0,
+            "WlsPositionYEcefMeters": 2200.0,
+            "WlsPositionZEcefMeters": 3300.0
+        },
+
+        "timestamp": 1724717852000        # Milliseconds since epoch
     }
 
     Args:
@@ -72,50 +86,49 @@ def insert_gps_log(db, device_id: str, fleet_id: str, ml_request_data: dict, cor
     raw_longitude = ml_request_data.get("raw_longitude")
     raw_altitude = ml_request_data.get("raw_altitude")
 
-    # Extract speed (support both 'Speed' and 'speed' keys)
-    speed_value = ml_request_data.get("Speed")
-    if speed_value is None:
-        speed_value = ml_request_data.get("speed")
-    # Try to normalize to float if possible
-    try:
-        if speed_value is not None:
-            speed_value = float(speed_value)
-    except (ValueError, TypeError):
-        # Leave as-is if it cannot be converted; optional field
-        pass
+    # Determine top-level speed in meters per second (speed_mps)
+    speed_mps = None
+    # Prefer native meters-per-second field if present in payload
+    if ml_request_data.get("speedMps") is not None:
+        try:
+            speed_mps = float(ml_request_data.get("speedMps"))
+        except (ValueError, TypeError):
+            speed_mps = None
+    # Fallback: legacy 'Speed' (from model input) or 'speed' (kph) -> convert to m/s
+    if speed_mps is None:
+        legacy_speed = ml_request_data.get("Speed")
+        if legacy_speed is None:
+            legacy_speed = ml_request_data.get("speed")
+        try:
+            if legacy_speed is not None:
+                speed_mps = float(legacy_speed) / 3.6
+        except (ValueError, TypeError):
+            speed_mps = None
+    # Default to 0.0 if missing
+    if speed_mps is None:
+        speed_mps = 0.0
 
-    # Build the enhanced log entry with both raw and final corrected coordinates
+    # Build the enhanced log entry with complete IoT payload and only essential derived data
+
     log_entry = {
-        "_id": ObjectId(),  # MongoDB will auto-generate if not provided
+        "_id": ObjectId(),
         "device_id": device_id,
         "fleet_id": fleet_id,
-        "speed": speed_value,  # Optional: top-level speed for easy querying/aggregation
-        "gps_data": {
-            "raw_coordinates": {
-                "latitude": raw_latitude,      # Original raw GPS reading from IoT device
-                "longitude": raw_longitude,    # Original raw GPS reading from IoT device
-                "altitude": raw_altitude       # Original raw GPS reading from IoT device
-            },
-            "final_coordinates": {
-                # Final = WLS + ML offset
-                "latitude": corrected_coordinates["latitude"],
-                # Final = WLS + ML offset
-                "longitude": corrected_coordinates["longitude"]
-                # Altitude not included since ML doesn't correct it (uses original)
-            },
-            "cn0": ml_request_data["Cn0DbHz"]  # Signal quality indicator
+        "SpeedMps": speed_mps,
+        "iot_payload": ml_request_data,
+        "ml_corrected_coordinates": {
+            "latitude": corrected_coordinates["latitude"],
+            "longitude": corrected_coordinates["longitude"]
         },
-        "imu_data": {
-            "MeasurementX": ml_request_data["MeasurementX"],
-            "MeasurementY": ml_request_data["MeasurementY"],
-            "MeasurementZ": ml_request_data["MeasurementZ"],
-            "BiasX": ml_request_data["BiasX"],
-            "BiasY": ml_request_data["BiasY"],
-            "BiasZ": ml_request_data["BiasZ"],
-            "IMU_MessageType": ml_request_data["IMU_MessageType"]
+        "wls_ecef": {
+            "WlsPositionXEcefMeters": (ecef_coordinates or {}).get("WlsPositionXEcefMeters"),
+            "WlsPositionYEcefMeters": (ecef_coordinates or {}).get("WlsPositionYEcefMeters"),
+            "WlsPositionZEcefMeters": (ecef_coordinates or {}).get("WlsPositionZEcefMeters"),
         },
-        "timestamp": timestamp_ms  # Timestamp in milliseconds
+        "timestamp": timestamp_ms
     }
+    if moved_point is not None:
+        log_entry["moved_point"] = moved_point
 
     # Insert as a new document (not pushing to array)
     result = db["tracking_logs"].insert_one(log_entry)

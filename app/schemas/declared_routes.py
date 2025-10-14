@@ -1,0 +1,1 @@
+from app.models.declared_routes import DeclaredRouteModel as DeclaredRouteCreate

@@ -7,8 +7,13 @@ def user_helper(user) -> dict:
         "address": user["address"],
         "gender": user["gender"],
         "role": user["role"],
-        "fleet_id": str(user["fleet_id"])
+        "fleet_id": str(user["fleet_id"]),
+        "notify": user.get("notify", False)  # ✅ NEW FIELD - defaults to False
     }
     if "location" in user:
         user_data["location"] = user["location"]
+    if "fcm_token" in user:
+        user_data["fcm_token"] = user.get("fcm_token")
+    if "selected_vehicle_id" in user:
+        user_data["selected_vehicle_id"] = user.get("selected_vehicle_id")
     return user_data

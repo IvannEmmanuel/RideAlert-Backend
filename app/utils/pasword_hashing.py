@@ -1,52 +1,50 @@
 from passlib.context import CryptContext
-import bcrypt as _bcrypt
+import hashlib
+import warnings
 
-# Use bcrypt_sha256 to safely handle passwords >72 bytes (bcrypt limit),
-# keep bcrypt for backward compatibility with existing hashes.
+# Suppress bcrypt version warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="passlib")
+
+# Support both bcrypt_sha256 (for existing hashes) and bcrypt (for new hashes)
+# This ensures backward compatibility while fixing the bcrypt version issues
 pwd_context = CryptContext(
-    schemes=["bcrypt_sha256", "bcrypt"], deprecated="auto")
+    schemes=["bcrypt", "bcrypt_sha256"],
+    deprecated="auto",
+    # Use bcrypt for new hashes, but still verify bcrypt_sha256
+    default="bcrypt"
+)
+
+
+def _truncate_password(password: str) -> str:
+    """Truncate password to 72 bytes to comply with bcrypt limitation"""
+    # Convert to bytes and truncate if necessary
+    password_bytes = password.encode('utf-8')
+    if len(password_bytes) > 72:
+        # If password is too long, hash it first to ensure consistent length
+        password = hashlib.sha256(password_bytes).hexdigest()
+    return password
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    truncated_password = _truncate_password(password)
+    return pwd_context.hash(truncated_password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    bcrypt_prefixes = ("$2a$", "$2b$", "$2y$")
-
-    # Manual path for legacy bcrypt hashes to avoid passlib backend issues on some platforms
-    if isinstance(hashed_password, str) and hashed_password.startswith(bcrypt_prefixes):
-        try:
-            pb = plain_password.encode("utf-8")
-            if len(pb) > 72:
-                pb = pb[:72]
-            return _bcrypt.checkpw(pb, hashed_password.encode("utf-8"))
-        except Exception:
-            # Fall back to passlib if direct bcrypt fails for any reason
-            pass
-
-    # Normal path (bcrypt_sha256 and others)
     try:
-        return pwd_context.verify(plain_password, hashed_password)
-    except ValueError:
-        # As a last resort, try passlib with truncated secret
+        truncated_password = _truncate_password(plain_password)
+        return pwd_context.verify(truncated_password, hashed_password)
+    except Exception as e:
+        # Log the error for debugging
+        print(f"Password verification error: {e}")
+        print(
+            f"Hash format: {hashed_password[:20]}..." if hashed_password else "No hash provided")
+
+        # Try with a fallback context that only supports bcrypt_sha256
         try:
-            pb = plain_password.encode("utf-8")
-            if len(pb) > 72:
-                return pwd_context.verify(pb[:72], hashed_password)
-        except Exception:
-            pass
-        raise
-
-
-def needs_update(hashed_password: str) -> bool:
-    """Return True if the stored hash should be upgraded to the preferred scheme (bcrypt_sha256)."""
-    bcrypt_prefixes = ("$2a$", "$2b$", "$2y$")
-    try:
-        # Force-upgrade legacy bcrypt hashes
-        if isinstance(hashed_password, str) and hashed_password.startswith(bcrypt_prefixes):
-            return True
-        return pwd_context.needs_update(hashed_password)
-    except Exception:
-        # Unknown/legacy format: treat as upgradeable
-        return True
+            fallback_context = CryptContext(
+                schemes=["bcrypt_sha256"], deprecated="auto")
+            return fallback_context.verify(plain_password, hashed_password)
+        except Exception as fallback_e:
+            print(f"Fallback verification also failed: {fallback_e}")
+            return False
