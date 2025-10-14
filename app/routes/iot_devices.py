@@ -222,7 +222,7 @@ def get_iot_device(device_id: str):
 
 
 @router.patch("/{device_id}", response_model=IoTDevicePublic)
-async def update_iot_device(device_id: str, payload: dict = Body(...), current_user: Dict = Depends(user_or_admin_required)):
+async def update_iot_device(device_id: str, payload: dict = Body(...), current_user: Dict = Depends(super_admin_required)):
     """
     Update fields of an IoT device and broadcast updated list.
     """
