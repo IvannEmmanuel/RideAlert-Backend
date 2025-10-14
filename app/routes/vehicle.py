@@ -17,6 +17,7 @@ from typing import Optional, Union
 
 router = APIRouter(prefix="/vehicles", tags=["Vehicles"])
 
+
 async def broadcast_stats_update():
     """Broadcast updated stats to all connected stats WebSocket clients"""
     try:
@@ -24,7 +25,7 @@ async def broadcast_stats_update():
         total_vehicles = vehicle_collection.count_documents({})
         total_users = user_collection.count_documents({})
         total_fleets = get_fleets_collection.count_documents({})
-        
+
         count_data = {
             "type": "stats_count",
             "data": {
@@ -34,12 +35,13 @@ async def broadcast_stats_update():
             }
         }
         await stats_count_manager.broadcast(count_data)
-        
+
         # Update for /stats/verified
         fleets_col = get_fleets_collection
-        verified_cursor = fleets_col.find({"role": "admin", "is_active": True}, {"_id": 1})
+        verified_cursor = fleets_col.find(
+            {"role": "admin", "is_active": True}, {"_id": 1})
         verified_ids = [str(f.get("_id")) for f in verified_cursor]
-        
+
         if verified_ids:
             from bson import ObjectId as _ObjectId
             id_filters = []
@@ -47,15 +49,15 @@ async def broadcast_stats_update():
                 if _ObjectId.is_valid(fid):
                     id_filters.append({"fleet_id": _ObjectId(fid)})
                 id_filters.append({"fleet_id": fid})
-            
+
             query = {"$or": id_filters}
             verified_vehicles = vehicle_collection.count_documents(query)
         else:
             verified_vehicles = 0
-        
+
         total_vehicles = vehicle_collection.count_documents({})
         unverified_vehicles = total_vehicles - verified_vehicles
-        
+
         verified_data = {
             "type": "stats_verified",
             "data": {
@@ -66,7 +68,7 @@ async def broadcast_stats_update():
             }
         }
         await stats_verified_manager.broadcast(verified_data)
-        
+
     except Exception as e:
         print(f"Error broadcasting stats update: {e}")
 
@@ -107,10 +109,10 @@ async def assign_route_id(vehicle_id: str, route_id: str, current_user: dict = D
         vehicle = vehicle_collection.find_one({"_id": ObjectId(vehicle_id)})
         fleet_id = str(vehicle.get("fleet_id", ""))
         await broadcast_vehicle_list(fleet_id)
-        
+
         # NEW: Broadcast stats updates
         await broadcast_stats_update()
-        
+
         if vehicle.get("status") == "available" and vehicle.get("location", {}).get("latitude") and vehicle.get("location", {}).get("longitude"):
             await broadcast_available_vehicle_list(fleet_id)
 
@@ -491,6 +493,7 @@ async def broadcast_available_vehicle_list(fleet_id: str):
     ]
     await vehicle_all_manager.broadcast({"vehicles": vehicles}, fleet_id)
 
+
 @router.get("/{vehicle_id}")
 async def get_vehicle(vehicle_id: str):
     """Return vehicle document by id or device_id (string or ObjectId)."""
@@ -498,7 +501,8 @@ async def get_vehicle(vehicle_id: str):
         # Try treating as ObjectId first
         query = None
         if ObjectId.is_valid(vehicle_id):
-            query = {"$or": [{"_id": ObjectId(vehicle_id)}, {"device_id": vehicle_id}]}
+            query = {"$or": [{"_id": ObjectId(vehicle_id)}, {
+                "device_id": vehicle_id}]}
         else:
             query = {"$or": [{"device_id": vehicle_id}, {"_id": vehicle_id}]}
 
@@ -525,6 +529,7 @@ async def get_vehicle(vehicle_id: str):
     except Exception as e:
         print(f"Error in get_vehicle: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/create/{fleet_id}", response_model=VehicleInDB)
 async def create_vehicle_for_fleet(
@@ -553,7 +558,7 @@ async def create_vehicle_for_fleet(
     total_vehicles = vehicle_collection.count_documents({})
     await vehicle_count_manager.broadcast({"total_vehicles": total_vehicles})
     await broadcast_vehicle_list(fleet_id)
-    
+
     # NEW: Broadcast stats updates
     await broadcast_stats_update()
 
@@ -647,7 +652,6 @@ def get_all_vehicles(fleet_id: str, current_user: dict = Depends(user_or_admin_r
             status_code=500, detail=f"Error retrieving vehicles: {str(e)}")
 
 
-
 @router.get("/count/verified")
 def count_verified_fleet_vehicles(current_user: dict = Depends(super_and_admin_required)):
     """
@@ -659,7 +663,8 @@ def count_verified_fleet_vehicles(current_user: dict = Depends(super_and_admin_r
         fleets_col = get_fleets_collection
 
         # Find all verified fleets and grab their _id values
-        verified_cursor = fleets_col.find({"role": "admin", "is_active": True}, {"_id": 1})
+        verified_cursor = fleets_col.find(
+            {"role": "admin", "is_active": True}, {"_id": 1})
         verified_ids = [str(f.get("_id")) for f in verified_cursor]
 
         if not verified_ids:
@@ -678,7 +683,8 @@ def count_verified_fleet_vehicles(current_user: dict = Depends(super_and_admin_r
         return {"verified_vehicle_count": count}
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error counting verified vehicles: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error counting verified vehicles: {str(e)}")
 
 
 @router.get("/counts")
@@ -697,10 +703,12 @@ def get_vehicle_counts_by_fleet(current_user: dict = Depends(super_and_admin_req
             {"$group": {"_id": {"$toString": "$fleet_id"}, "count": {"$sum": 1}}},
         ]
         agg = list(vehicle_collection.aggregate(pipeline))
-        counts = [{"fleet_id": item["_id"], "count": item["count"]} for item in agg]
+        counts = [{"fleet_id": item["_id"], "count": item["count"]}
+                  for item in agg]
         return {"counts": counts}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error aggregating vehicle counts: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error aggregating vehicle counts: {str(e)}")
 
 
 @router.get("/stats/counts-http")
@@ -713,10 +721,13 @@ def get_vehicle_counts_by_fleet_stats(current_user: dict = Depends(super_and_adm
             {"$group": {"_id": {"$toString": "$fleet_id"}, "count": {"$sum": 1}}},
         ]
         agg = list(vehicle_collection.aggregate(pipeline))
-        counts = [{"fleet_id": item["_id"], "count": item["count"]} for item in agg]
+        counts = [{"fleet_id": item["_id"], "count": item["count"]}
+                  for item in agg]
         return {"counts": counts}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error aggregating vehicle counts: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error aggregating vehicle counts: {str(e)}")
+
 
 @router.websocket("/stats/count")
 async def stats_count_websocket(websocket: WebSocket):
@@ -730,7 +741,7 @@ async def stats_count_websocket(websocket: WebSocket):
         total_vehicles = vehicle_collection.count_documents({})
         total_users = user_collection.count_documents({})
         total_fleets = get_fleets_collection.count_documents({})
-        
+
         initial_data = {
             "type": "stats_count",
             "data": {
@@ -740,14 +751,14 @@ async def stats_count_websocket(websocket: WebSocket):
             }
         }
         await websocket.send_json(initial_data)
-        
+
         # Keep connection alive and wait for updates
         while True:
             # Client can send ping or just wait for updates
             data = await websocket.receive_text()
             if data == "ping":
                 await websocket.send_text("pong")
-                
+
     except WebSocketDisconnect:
         stats_count_manager.disconnect(websocket)
         print("Client disconnected from /stats/count")
@@ -763,7 +774,8 @@ def count_verified_fleet_vehicles_stats(current_user: dict = Depends(super_and_a
     """
     try:
         fleets_col = get_fleets_collection
-        verified_cursor = fleets_col.find({"role": "admin", "is_active": True}, {"_id": 1})
+        verified_cursor = fleets_col.find(
+            {"role": "admin", "is_active": True}, {"_id": 1})
         verified_ids = [str(f.get("_id")) for f in verified_cursor]
         if not verified_ids:
             return {"verified_vehicle_count": 0}
@@ -777,7 +789,9 @@ def count_verified_fleet_vehicles_stats(current_user: dict = Depends(super_and_a
         count = vehicle_collection.count_documents(query)
         return {"verified_vehicle_count": count}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error counting verified vehicles: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error counting verified vehicles: {str(e)}")
+
 
 @router.websocket("/stats/verified")
 async def stats_verified_websocket(websocket: WebSocket):
@@ -789,9 +803,10 @@ async def stats_verified_websocket(websocket: WebSocket):
     try:
         # Send initial data when client connects
         fleets_col = get_fleets_collection
-        verified_cursor = fleets_col.find({"role": "admin", "is_active": True}, {"_id": 1})
+        verified_cursor = fleets_col.find(
+            {"role": "admin", "is_active": True}, {"_id": 1})
         verified_ids = [str(f.get("_id")) for f in verified_cursor]
-        
+
         if verified_ids:
             from bson import ObjectId as _ObjectId
             id_filters = []
@@ -799,15 +814,15 @@ async def stats_verified_websocket(websocket: WebSocket):
                 if _ObjectId.is_valid(fid):
                     id_filters.append({"fleet_id": _ObjectId(fid)})
                 id_filters.append({"fleet_id": fid})
-            
+
             query = {"$or": id_filters}
             verified_vehicles = vehicle_collection.count_documents(query)
         else:
             verified_vehicles = 0
-        
+
         total_vehicles = vehicle_collection.count_documents({})
         unverified_vehicles = total_vehicles - verified_vehicles
-        
+
         initial_data = {
             "type": "stats_verified",
             "data": {
@@ -818,20 +833,21 @@ async def stats_verified_websocket(websocket: WebSocket):
             }
         }
         await websocket.send_json(initial_data)
-        
+
         # Keep connection alive and wait for updates
         while True:
             # Client can send ping or just wait for updates
             data = await websocket.receive_text()
             if data == "ping":
                 await websocket.send_text("pong")
-                
+
     except WebSocketDisconnect:
         stats_verified_manager.disconnect(websocket)
         print("Client disconnected from /stats/verified")
     except Exception as e:
         stats_verified_manager.disconnect(websocket)
         print(f"Error in /stats/verified WebSocket: {e}")
+
 
 @router.get("/track/{id}", response_model=VehicleTrackResponse)
 def track_vehicle(id: str, current_user: dict = Depends(user_or_admin_required)):
@@ -903,10 +919,10 @@ async def assign_device_id(vehicle_id: str, device_id: str, current_user: dict =
         vehicle = vehicle_collection.find_one({"_id": ObjectId(vehicle_id)})
         fleet_id = str(vehicle.get("fleet_id", ""))
         await broadcast_vehicle_list(fleet_id)
-        
+
         # NEW: Broadcast stats updates
         await broadcast_stats_update()
-        
+
         if vehicle.get("status") == "available" and vehicle.get("location", {}).get("latitude") and vehicle.get("location", {}).get("longitude"):
             await broadcast_available_vehicle_list(fleet_id)
 
@@ -932,10 +948,10 @@ async def delete_vehicle(vehicle_id: str, current_user: dict = Depends(super_and
         total_vehicles = vehicle_collection.count_documents({})
         await vehicle_count_manager.broadcast({"total_vehicles": total_vehicles})
         await broadcast_vehicle_list(fleet_id)
-        
+
         # NEW: Broadcast stats updates
         await broadcast_stats_update()
-        
+
         if vehicle.get("status") == "available" and vehicle.get("location", {}).get("latitude") and vehicle.get("location", {}).get("longitude"):
             await broadcast_available_vehicle_list(fleet_id)
 
@@ -1135,7 +1151,7 @@ async def update_status_by_device(device_id: str, payload: IoTStatusUpdate):
     # Broadcast updated lists for the fleet
     fleet_id = str(vehicle.get("fleet_id", ""))
     await broadcast_vehicle_list(fleet_id)
-    
+
     # NEW: Broadcast stats updates (in case status affects verified counts)
     await broadcast_stats_update()
 
@@ -1152,6 +1168,7 @@ async def update_status_by_device(device_id: str, payload: IoTStatusUpdate):
         await broadcast_available_vehicle_list(fleet_id)
 
     return {"message": "Vehicle status updated", "status": status_value, "status_detail": detail}
+
 
 class HelpRequest(BaseModel):
     message: Optional[str] = None
@@ -1227,15 +1244,6 @@ class IoTBoundForUpdate(BaseModel):
     key: str
 
 
-def _map_key_to_bound_for(key: str):
-    k = (key or "").strip().upper()
-    if k == 'B':
-        return "IGPIT"
-    if k == 'C':
-        return "BUGO"
-    return None
-
-
 @router.post("/bound-for/device/{device_id}")
 async def update_bound_for_by_device(device_id: str, payload: IoTBoundForUpdate):
     """Update a vehicle's bound_for using IoT keypad key ('B' or 'C')."""
@@ -1244,10 +1252,23 @@ async def update_bound_for_by_device(device_id: str, payload: IoTBoundForUpdate)
         raise HTTPException(
             status_code=404, detail="Vehicle with that device_id not found")
 
-    bound_for = _map_key_to_bound_for(payload.key)
-    if not bound_for:
+    k = (payload.key or "").strip().upper()
+    current_route = vehicle.get("current_route", {})
+    start_location = current_route.get("start_location")
+    end_location = current_route.get("end_location")
+    if k == 'B':
+        if not start_location:
+            raise HTTPException(
+                status_code=400, detail="No start_location set for this vehicle.")
+        bound_for = start_location
+    elif k == 'C':
+        if not end_location:
+            raise HTTPException(
+                status_code=400, detail="No end_location set for this vehicle.")
+        bound_for = end_location
+    else:
         raise HTTPException(
-            status_code=400, detail="Unsupported key. Use 'B' for IGPIT or 'C' for BUGO.")
+            status_code=400, detail="Unsupported key. Use 'B' for start_location or 'C' for end_location.")
 
     vehicle_collection.update_one(
         {"_id": vehicle["_id"]},
@@ -1373,7 +1394,7 @@ async def iot_keypad_update(device_id: str, payload: IoTUnifiedUpdate):
     k = str(payload.key).strip().upper()
 
     # Help request (5)
-        # Help request (5)
+    # Help request (5)
     if k == '5':
         fleet_id = str(vehicle.get("fleet_id", ""))
         plate = vehicle.get("plate") or str(vehicle.get("_id"))
@@ -1420,10 +1441,10 @@ async def iot_keypad_update(device_id: str, payload: IoTUnifiedUpdate):
 
         fleet_id = str(vehicle.get("fleet_id", ""))
         await broadcast_vehicle_list(fleet_id)
-        
+
         # NEW: Broadcast stats updates
         await broadcast_stats_update()
-        
+
         v_after = vehicle_collection.find_one({"_id": vehicle["_id"]})
         loc = v_after.get("location") if v_after else None
         if (
@@ -1436,15 +1457,26 @@ async def iot_keypad_update(device_id: str, payload: IoTUnifiedUpdate):
             await broadcast_available_vehicle_list(fleet_id)
         return {"message": "Vehicle status updated", "status": status_value, "status_detail": detail}
 
-    # Bound for (B,C)
-    bound_for = _map_key_to_bound_for(k)
-    if bound_for:
-        vehicle_collection.update_one({"_id": vehicle["_id"]}, {
-                                      "$set": {"bound_for": bound_for}})
-        fleet_id = str(vehicle.get("fleet_id", ""))
-        await broadcast_vehicle_list(fleet_id)
-        return {"message": "Vehicle bound_for updated", "bound_for": bound_for}
+    # Bound for (B,C) using current_route
+    current_route = vehicle.get("current_route", {})
+    start_location = current_route.get("start_location")
+    end_location = current_route.get("end_location")
+    if k == 'B':
+        if not start_location:
+            raise HTTPException(
+                status_code=400, detail="No start_location set for this vehicle.")
+        bound_for = start_location
+    elif k == 'C':
+        if not end_location:
+            raise HTTPException(
+                status_code=400, detail="No end_location set for this vehicle.")
+        bound_for = end_location
+    else:
+        raise HTTPException(
+            status_code=400, detail="Unsupported key. Use '1','2','A','4','5','B','C'.")
 
-    # Unsupported
-    raise HTTPException(
-        status_code=400, detail="Unsupported key. Use '1','2','A','4','5','B','C'.")
+    vehicle_collection.update_one({"_id": vehicle["_id"]}, {
+        "$set": {"bound_for": bound_for}})
+    fleet_id = str(vehicle.get("fleet_id", ""))
+    await broadcast_vehicle_list(fleet_id)
+    return {"message": "Vehicle bound_for updated", "bound_for": bound_for}
