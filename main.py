@@ -16,6 +16,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.utils.background_loader import background_loader
 from contextlib import asynccontextmanager
 from app.workers.proximity_checker import start_proximity_checker, stop_proximity_checker
+# ADD THIS IMPORT
+from app.routes.vehicle import background_eta_updater
 import logging
 import asyncio
 
@@ -26,6 +28,8 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global proximity_task
+    # ADD ETA TASK VARIABLE
+    global eta_task
 
     # Startup
     print("🚀 FastAPI starting up...")
@@ -53,6 +57,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ Proximity checker startup warning: {e}")
 
+    # ADD ETA BACKGROUND UPDATER HERE
+    try:
+        eta_task = asyncio.create_task(background_eta_updater())
+        print("✅ ETA background updater started")
+    except Exception as e:
+        print(f"⚠️ ETA background updater startup warning: {e}")
+
     yield
 
     # Shutdown
@@ -69,6 +80,17 @@ async def lifespan(app: FastAPI):
                 print("✅ Proximity checker stopped")
     except Exception as e:
         print(f"⚠️ Proximity checker shutdown warning: {e}")
+
+    # ADD ETA TASK SHUTDOWN HERE
+    try:
+        if eta_task:
+            eta_task.cancel()
+            try:
+                await eta_task
+            except asyncio.CancelledError:
+                print("✅ ETA background updater stopped")
+    except Exception as e:
+        print(f"⚠️ ETA background updater shutdown warning: {e}")
 
 
 app = FastAPI(lifespan=lifespan)
@@ -104,7 +126,8 @@ app.include_router(route_assignment_router)
 @app.get("/")
 def read_root():
     return {"message": "Server is running",
-            "proximity_checker": "active"
+            "proximity_checker": "active",
+            "eta_updater": "active"  # ADD THIS LINE
             }
 
 
@@ -114,7 +137,8 @@ def health_check():
     return {
         "status": "healthy",
         "message": "RideAlert Backend is running",
-        "proximity_checker": "active"
+        "proximity_checker": "active",
+        "eta_updater": "active"  # ADD THIS LINE
     }
 
 
@@ -131,7 +155,8 @@ def server_status():
     return {
         "server": "running",
         "models": model_status,
-        "proximity_checker": "running" if proximity_task and not proximity_task.done() else "stopped"
+        "proximity_checker": "running" if proximity_task and not proximity_task.done() else "stopped",
+        "eta_updater": "running" if 'eta_task' in globals() and eta_task and not eta_task.done() else "stopped"  # ADD THIS LINE
     }
 
 
