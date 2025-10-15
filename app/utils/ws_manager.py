@@ -1,5 +1,5 @@
 from typing import List, Dict
-from fastapi import WebSocket
+from fastapi import WebSocket, WebSocketDisconnect
 
 class ConnectionManager:
     def __init__(self):
@@ -44,6 +44,41 @@ class FleetConnectionManager:
                 except Exception:
                     self.disconnect(connection, fleet_id)
 
+class EtaManager:
+    def __init__(self):
+        self.active_connections: Dict[str, List[WebSocket]] = {}
+
+    async def connect(self, websocket: WebSocket, vehicle_id: str):
+        await websocket.accept()
+        if vehicle_id not in self.active_connections:
+            self.active_connections[vehicle_id] = []
+        self.active_connections[vehicle_id].append(websocket)
+
+    def disconnect(self, websocket: WebSocket, vehicle_id: str):
+        if vehicle_id in self.active_connections:
+            if websocket in self.active_connections[vehicle_id]:
+                self.active_connections[vehicle_id].remove(websocket)
+            if not self.active_connections[vehicle_id]:
+                del self.active_connections[vehicle_id]
+
+    async def broadcast_eta(self, vehicle_id: str, eta_data: dict):
+        if vehicle_id in self.active_connections:
+            disconnected = []
+            for websocket in self.active_connections[vehicle_id]:
+                try:
+                    await websocket.send_json({
+                        "type": "eta_update",
+                        "vehicle_id": vehicle_id,
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "data": eta_data
+                    })
+                except (WebSocketDisconnect, RuntimeError):
+                    disconnected.append(websocket)
+            
+            # Remove disconnected clients
+            for websocket in disconnected:
+                self.disconnect(websocket, vehicle_id)
+
 # Separate managers for different endpoints
 fleet_count_manager = ConnectionManager()  # For /fleets/ws/count-fleets
 fleet_all_manager = ConnectionManager()    # For /fleets/ws/all
@@ -56,3 +91,4 @@ iot_device_fleet_manager = FleetConnectionManager() # For /iot_devices/ws/fleet/
 stats_count_manager = ConnectionManager()  # For /stats/count WebSocket
 stats_verified_manager = ConnectionManager()  # For /stats/verified WebSocket
 routes_all_manager = ConnectionManager()  # For /declared_routes/ws/routes (superadmin real-time updates)
+eta_manager = EtaManager() # For /ws/vehicles/eta/{vehicle_id}
