@@ -20,6 +20,38 @@ vehicle_subscribers: Dict[str, List[WebSocket]] = {}
 # Global vehicle location feed
 all_vehicle_updates_subscribers: List[WebSocket] = []
 
+async def broadcast_vehicle_location_update(vehicle_id: str, latitude: float, longitude: float, device_id: str = None):
+    """Broadcast vehicle location update to all subscribers"""
+    
+    # Create the update message
+    update_message = {
+        "type": "location_update",
+        "vehicle_id": vehicle_id,
+        "device_id": device_id or vehicle_id,  # Use vehicle_id as fallback
+        "latitude": latitude,
+        "longitude": longitude,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+    
+    # Broadcast to vehicle-specific subscribers
+    if vehicle_id in vehicle_subscribers:
+        subscribers = vehicle_subscribers[vehicle_id].copy()
+        for ws in subscribers:
+            try:
+                await ws.send_json(update_message)
+            except (WebSocketDisconnect, RuntimeError):
+                # Remove disconnected clients
+                if ws in vehicle_subscribers[vehicle_id]:
+                    vehicle_subscribers[vehicle_id].remove(ws)
+    
+    # Broadcast to global subscribers
+    global_subscribers = all_vehicle_updates_subscribers.copy()
+    for ws in global_subscribers:
+        try:
+            await ws.send_json(update_message)
+        except (WebSocketDisconnect, RuntimeError):
+            if ws in all_vehicle_updates_subscribers:
+                all_vehicle_updates_subscribers.remove(ws)
 
 @ws_router.websocket("/ws/location")
 async def update_location(websocket: WebSocket):
