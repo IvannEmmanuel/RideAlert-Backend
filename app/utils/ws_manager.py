@@ -15,11 +15,17 @@ class ConnectionManager:
             self.active_connections.remove(websocket)
 
     async def broadcast(self, message: dict):
-        for connection in self.active_connections:
+        disconnected = []
+        for connection in self.active_connections[:]:  # Create a copy to iterate
             try:
                 await connection.send_json(message)
-            except Exception:
-                self.disconnect(connection)
+            except Exception as e:
+                print(f"❌ DEBUG: Connection error during broadcast: {str(e)}")
+                disconnected.append(connection)
+        
+        # Clean up disconnected clients
+        for connection in disconnected:
+            self.disconnect(connection)
 
 class FleetConnectionManager:
     def __init__(self):
@@ -39,11 +45,17 @@ class FleetConnectionManager:
 
     async def broadcast(self, message: dict, fleet_id: str):
         if fleet_id in self.active_connections:
-            for connection in self.active_connections[fleet_id][:]:
+            disconnected = []
+            for connection in self.active_connections[fleet_id][:]:  # Create a copy
                 try:
                     await connection.send_json(message)
-                except Exception:
-                    self.disconnect(connection, fleet_id)
+                except Exception as e:
+                    print(f"❌ DEBUG: Connection error during broadcast: {str(e)}")
+                    disconnected.append(connection)
+            
+            # Clean up disconnected clients
+            for connection in disconnected:
+                self.disconnect(connection, fleet_id)
 
 class RoleBasedConnectionManager:
     def __init__(self):
@@ -59,6 +71,7 @@ class RoleBasedConnectionManager:
         self.active_connections["all"].append(websocket)
 
     def disconnect(self, websocket: WebSocket):
+        """Remove websocket from all role lists"""
         for role in self.active_connections:
             if websocket in self.active_connections[role]:
                 self.active_connections[role].remove(websocket)
@@ -67,9 +80,8 @@ class RoleBasedConnectionManager:
         disconnected = []
         print(f"📢 DEBUG: Broadcasting to {role} role. Connected clients: {len(self.active_connections.get(role, []))}")
         
-        for websocket in self.active_connections.get(role, []):
+        for websocket in self.active_connections.get(role, [])[:]:  # Create a copy
             try:
-                # Use send_json instead of send_text for consistency
                 await websocket.send_json(message)
                 print(f"✅ DEBUG: Successfully sent to {role} client")
             except Exception as e:
@@ -82,24 +94,22 @@ class RoleBasedConnectionManager:
 
     async def broadcast(self, message: dict):
         disconnected = []
-        for role_connections in self.active_connections.values():
-            for websocket in role_connections[:]:
+        # Iterate through all roles and their connections
+        for role in self.active_connections:
+            for websocket in self.active_connections[role][:]:  # Create a copy
                 try:
                     await websocket.send_json(message)
-                except Exception:
+                except Exception as e:
+                    print(f"❌ DEBUG: Connection error in {role}: {str(e)}")
                     disconnected.append(websocket)
         
-        # Clean up disconnected clients
+        # Clean up disconnected clients (only once per websocket)
+        seen = set()
         for websocket in disconnected:
-            self.disconnect(websocket)
+            if id(websocket) not in seen:
+                self.disconnect(websocket)
+                seen.add(id(websocket))
 
-    def disconnect(self, websocket: WebSocket):
-        for role in self.active_connections:
-            if websocket in self.active_connections[role]:
-                self.active_connections[role].remove(websocket)
-        for role in self.active_connections:
-            if websocket in self.active_connections[role]:
-                self.active_connections[role].remove(websocket)
 class EtaManager:
     def __init__(self):
         self.active_connections: Dict[str, List[WebSocket]] = {}
@@ -120,7 +130,7 @@ class EtaManager:
     async def broadcast_eta(self, vehicle_id: str, eta_data: dict):
         if vehicle_id in self.active_connections:
             disconnected = []
-            for websocket in self.active_connections[vehicle_id]:
+            for websocket in self.active_connections[vehicle_id][:]:  # Create a copy
                 try:
                     await websocket.send_json({
                         "type": "eta_update",
@@ -128,7 +138,8 @@ class EtaManager:
                         "timestamp": datetime.utcnow().isoformat(),
                         "data": eta_data
                     })
-                except (WebSocketDisconnect, RuntimeError):
+                except (WebSocketDisconnect, RuntimeError) as e:
+                    print(f"❌ DEBUG: ETA connection error: {str(e)}")
                     disconnected.append(websocket)
             
             # Remove disconnected clients
