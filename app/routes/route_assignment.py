@@ -63,7 +63,7 @@ async def assign_route_to_vehicle(
         
         # Update vehicle with assigned routes
         update_data = {
-            "assigned_routes": valid_routes,
+            # "assigned_routes": valid_routes,
             "current_route": valid_routes[0] if valid_routes else None,
             "last_updated": datetime.utcnow()
         }
@@ -83,7 +83,7 @@ async def assign_route_to_vehicle(
         
         # Verify the update
         updated_vehicle = vehicles_collection.find_one({"_id": ObjectId(vehicle_id)})
-        print(f"DEBUG: Updated vehicle routes: {updated_vehicle.get('assigned_routes', [])}")
+        # print(f"DEBUG: Updated vehicle routes: {updated_vehicle.get('assigned_routes', [])}")
         
         return {
             "success": True,

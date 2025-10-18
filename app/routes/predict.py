@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, root_validator
 import time as _time
 from shapely.geometry import LineString, Point
 import threading
+from app.routes.websockets import broadcast_vehicle_location_update
 
 # Route cache and lock
 _route_cache = {"line": None, "last_refresh": 0}
@@ -319,8 +320,15 @@ async def predict(request: PredictionRequest):
                 # Look up vehicle by device_id
                 vehicle = db.vehicles.find_one(
                     {"device_id": request.device_id})
+                route_id = None
                 if vehicle:
-                    route_id = vehicle.get("route_id")
+                    # Use new format: current_route.route_id
+                    current_route = vehicle.get("current_route")
+                    if current_route and "route_id" in current_route:
+                        route_id = current_route["route_id"]
+                    # Fallback to top-level route_id if needed
+                    if not route_id:
+                        route_id = vehicle.get("route_id")
             route_line = await get_route_line_from_db(route_id=route_id)
             if route_line:
                 snapped_lat, snapped_lng = snap_to_route(
@@ -344,25 +352,34 @@ async def predict(request: PredictionRequest):
             "snapped": snapped
         }
 
-        # Broadcast prediction to WebSocket subscribers
-        try:
-            # Import here to avoid circular imports
-            from app.routes.websockets import broadcast_prediction
+        # # Update vehicle location in the vehicles collection with snapped coordinates
+        # try:
+        #     dev_id = str(request.device_id).strip()
+        #     filter_query = {"$or": [{"device_id": dev_id}]}
+        #     if ObjectId.is_valid(dev_id):
+        #         filter_query["$or"].append({"device_id": ObjectId(dev_id)})
 
-            # Create a background task to broadcast (so it doesn't slow down the HTTP response)
-            asyncio.create_task(
-                broadcast_prediction(
-                    device_id=request.device_id,
-                    fleet_id=request.fleet_id,
-                    prediction_data=response_data,
-                    # Broadcast raw IoT payload using aliases (e.g., speedMps)
-                    ml_request_data=request.dict(by_alias=True),
-                    response_time_ms=response_time_ms
-                )
-            )
-            # print(f"📡 Broadcasting vehicle location update from {request.vehicle_id}")
-        except Exception as e:
-            print(f"⚠️ Warning: Failed to broadcast prediction: {e}")
+        #     update_result = db.vehicles.update_one(
+        #         filter_query,
+        #         {
+        #             "$set": {
+        #                 "location": {
+        #                     "latitude": float(snapped_lat),
+        #                     "longitude": float(snapped_lng)
+        #                 }
+        #             }
+        #         }
+        #     )
+
+        #     if update_result.matched_count > 0:
+        #         print(
+        #             f"🚗 Vehicle {request.device_id} snapped location updated: lat={snapped_lat:.6f}, lng={snapped_lng:.6f}")
+        #     else:
+        #         print(
+        #             f"⚠️ Warning: Vehicle {request.device_id} not found in vehicles collection")
+
+        # except Exception as e:
+        #     print(f"⚠️ Warning: Failed to update vehicle location: {e}")
 
         # Update vehicle location in the vehicles collection with snapped coordinates
         try:
@@ -371,24 +388,36 @@ async def predict(request: PredictionRequest):
             if ObjectId.is_valid(dev_id):
                 filter_query["$or"].append({"device_id": ObjectId(dev_id)})
 
-            update_result = db.vehicles.update_one(
-                filter_query,
-                {
-                    "$set": {
-                        "location": {
-                            "latitude": float(snapped_lat),
-                            "longitude": float(snapped_lng)
+            # Find the vehicle to get its ID
+            vehicle = db.vehicles.find_one(filter_query)
+            
+            if vehicle:
+                vehicle_id = str(vehicle["_id"])
+                
+                update_result = db.vehicles.update_one(
+                    filter_query,
+                    {
+                        "$set": {
+                            "location": {
+                                "latitude": float(snapped_lat),
+                                "longitude": float(snapped_lng)
+                            }
                         }
                     }
-                }
-            )
+                )
 
-            if update_result.matched_count > 0:
-                print(
-                    f"🚗 Vehicle {request.device_id} snapped location updated: lat={snapped_lat:.6f}, lng={snapped_lng:.6f}")
+                if update_result.matched_count > 0:
+                    print(f"🚗 Vehicle {request.device_id} snapped location updated: lat={snapped_lat:.6f}, lng={snapped_lng:.6f}")
+                    
+                    # BROADCAST THE UPDATE TO WEBSOCKET SUBSCRIBERS
+                    await broadcast_vehicle_location_update(
+                        vehicle_id=vehicle_id,
+                        latitude=float(snapped_lat),
+                        longitude=float(snapped_lng),
+                        device_id=request.device_id
+                    )
             else:
-                print(
-                    f"⚠️ Warning: Vehicle {request.device_id} not found in vehicles collection")
+                print(f"⚠️ Warning: Vehicle {request.device_id} not found in vehicles collection")
 
         except Exception as e:
             print(f"⚠️ Warning: Failed to update vehicle location: {e}")

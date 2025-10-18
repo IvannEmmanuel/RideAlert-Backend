@@ -609,3 +609,32 @@ async def get_all_declared_routes(current_user: dict = Depends(super_and_admin_r
         return [DeclaredRouteModel(**route) for route in routes]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/routes/{fleet_id}", response_model=List[dict])
+async def get_routes_by_fleet_id(fleet_id: str, current_user: dict = Depends(admin_required)):
+    """
+    Get all start and end locations for a specific fleet/company (fleet_id).
+    """
+    try:
+        routes_collection = get_declared_routes_collection
+        fleets_collection = get_fleets_collection
+
+        # Check if company exists
+        company = fleets_collection.find_one({"_id": ObjectId(fleet_id)})
+        if not company:
+            raise HTTPException(status_code=404, detail="Company not found")
+
+        # Get all routes belonging to this company
+        routes = list(routes_collection.find({"company_id": fleet_id}, {
+            "start_location": 1,
+            "end_location": 1,
+            "_id": 0
+        }))
+
+        if not routes:
+            raise HTTPException(status_code=404, detail="No routes found for this company")
+
+        return routes
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
