@@ -180,18 +180,114 @@ async def update_route_geojson(
     route_geojson: UploadFile = File(...),
     current_user: dict = Depends(super_and_admin_required)
 ):
+    """
+    Upload GeoJSON to a route and notify the company
+    """
     try:
+        # Read and validate GeoJSON
         geojson_content = await route_geojson.read()
         route_geojson_dict = json.loads(geojson_content)
+        
+        # Fetch the route to get company info
+        route = get_declared_routes_collection.find_one({"_id": ObjectId(route_id)})
+        if not route:
+            raise HTTPException(status_code=404, detail="Declared route not found")
+        
+        company_id = str(route["company_id"])
+        
+        # Get company details
+        fleet = get_fleets_collection.find_one({"_id": ObjectId(company_id)})
+        company_name = fleet.get("company_name", "Unknown Company") if fleet else "Unknown Company"
+        
+        # Update route with GeoJSON
         result = get_declared_routes_collection.update_one(
             {"_id": ObjectId(route_id)},
             {"$set": {"route_geojson": route_geojson_dict}}
         )
+        
         if result.matched_count == 0:
-            raise HTTPException(
-                status_code=404, detail="Declared route not found")
+            raise HTTPException(status_code=404, detail="Declared route not found")
+        
+        # Get admin user info (the one uploading)
+        superadmin_name = current_user.get("username", "SuperAdmin")
+        
+        # Create notification data
+        notification_data = {
+            "type": "geojson_uploaded_notification",
+            "notification": {
+                "id": route_id,
+                "title": "GeoJSON File Uploaded",
+                "description": f"Superadmin {superadmin_name} has uploaded a GeoJSON file for your route '{route['start_location']} → {route['end_location']}'",
+                "type": "geojson_uploaded",
+                "is_read": False,
+                "created_at": datetime.utcnow().isoformat(),
+                "data": {
+                    "route_id": route_id,
+                    "route_name": f"{route['start_location']} → {route['end_location']}",
+                    "company_id": company_id,
+                    "company_name": company_name,
+                    "uploaded_by": superadmin_name,
+                    "uploaded_by_id": current_user.get("id", ""),
+                    "file_name": route_geojson.filename,
+                    "start_location": route["start_location"],
+                    "end_location": route["end_location"]
+                }
+            }
+        }
+        
+        # Save notification to database (for company admins who are offline)
+        try:
+            db_notification = {
+                "title": "GeoJSON File Uploaded",
+                "description": f"Superadmin {superadmin_name} has uploaded a GeoJSON file for your route '{route['start_location']} → {route['end_location']}'",
+                "type": "geojson_uploaded",
+                "recipient_roles": ["admin"],  # Only admins of that company
+                "recipient_ids": [company_id],  # Specific to this company
+                "data": {
+                    "route_id": route_id,
+                    "route_name": f"{route['start_location']} → {route['end_location']}",
+                    "company_id": company_id,
+                    "company_name": company_name,
+                    "uploaded_by": superadmin_name,
+                    "file_name": route_geojson.filename,
+                    "start_location": route["start_location"],
+                    "end_location": route["end_location"]
+                },
+                "is_read": False,
+                "created_at": datetime.utcnow(),
+                "created_by": current_user.get("id", "system")
+            }
+            
+            notifications_collection.insert_one(db_notification)
+            print(f"💾 DEBUG: GeoJSON upload notification saved to database for company {company_id}")
+            
+        except Exception as db_error:
+            print(f"⚠️ DEBUG: Failed to save GeoJSON notification to database: {str(db_error)}")
+        
+        # Send real-time notification via WebSocket to connected admins
+        try:
+            await routes_all_manager.broadcast(notification_data)
+            print(f"📢 DEBUG: Real-time GeoJSON notification sent to {len(routes_all_manager.active_connections)} connected client(s)")
+            
+        except Exception as ws_error:
+            print(f"⚠️ DEBUG: WebSocket broadcast failed: {str(ws_error)}")
+        
+        # Also send to notification manager for the specific company
+        try:
+            # Send to admins with role "admin"
+            await notification_manager.broadcast_to_role(notification_data, "admin")
+            print(f"👥 DEBUG: GeoJSON notification sent to admin connections")
+        except Exception as nm_error:
+            print(f"⚠️ DEBUG: Notification manager broadcast failed: {str(nm_error)}")
+        
         return {"updated": True}
+        
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid GeoJSON file format")
     except Exception as e:
+        print(f"❌ DEBUG: Error uploading GeoJSON: {str(e)}")
+        import traceback
+        print(f"❌ DEBUG: Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
