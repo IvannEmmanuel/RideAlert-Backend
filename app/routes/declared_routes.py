@@ -452,6 +452,143 @@ async def upload_declared_route(
         import traceback
         print(f"❌ DEBUG: Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to create route: {str(e)}")
+    
+# Add this new endpoint to your declared_routes.py file
+
+@router.post("/route-register-public", response_model=dict)
+async def upload_declared_route_public(
+    company_code: str = Form(...),  # Use company_code instead of company_id
+    start_location: str = Form(...),
+    end_location: str = Form(...),
+    landmark_details_start: str = Form(...),
+    landmark_details_end: str = Form(...),
+    route_geojson: UploadFile = File(None)
+):
+    """
+    Create a new route during registration (no authentication required).
+    Uses company_code to find the fleet since the user isn't logged in yet.
+    """
+    try:
+        print(f"🚀 DEBUG: Public route creation started for company: {company_code}")
+        
+        # Validate required fields
+        if not start_location.strip() or not end_location.strip():
+            raise HTTPException(status_code=400, detail="Start and end locations are required")
+        
+        # Find the fleet by company_code
+        fleet = get_fleets_collection.find_one({"company_code": company_code})
+        if not fleet:
+            raise HTTPException(status_code=404, detail="Company not found")
+        
+        company_id = str(fleet["_id"])
+        company_name = fleet.get("company_name", "Unknown Company")
+        
+        # Only allow route creation for unverified or admin fleets
+        if fleet.get("role") not in ["unverified", "admin"]:
+            raise HTTPException(status_code=403, detail="Fleet status does not allow route creation")
+        
+        # Handle GeoJSON file if provided
+        route_geojson_dict = None
+        if route_geojson:
+            try:
+                geojson_content = await route_geojson.read()
+                route_geojson_dict = json.loads(geojson_content)
+                print("✅ DEBUG: GeoJSON file processed successfully")
+            except json.JSONDecodeError:
+                raise HTTPException(status_code=400, detail="Invalid GeoJSON file format")
+            except Exception as e:
+                print(f"⚠️ DEBUG: Error processing GeoJSON: {str(e)}")
+        
+        # Prepare route data
+        data = {
+            "company_id": company_id,
+            "start_location": start_location.strip(),
+            "end_location": end_location.strip(),
+            "landmark_details_start": landmark_details_start.strip() if landmark_details_start else "",
+            "landmark_details_end": landmark_details_end.strip() if landmark_details_end else "",
+            "route_geojson": route_geojson_dict,
+            "created_by_id": company_id,  # Use company_id since no user is logged in
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
+        }
+        
+        # Insert route into database
+        result = get_declared_routes_collection.insert_one(data)
+        inserted_id = str(result.inserted_id)
+        
+        print(f"✅ DEBUG: Route created with ID: {inserted_id}")
+        print(f"📍 DEBUG: Route: {start_location} → {end_location}")
+        print(f"🏢 DEBUG: Company: {company_name}")
+        
+        # Prepare notification data for superadmins
+        notification_data = {
+            "type": "new_route_notification",
+            "notification": {
+                "id": inserted_id,
+                "title": "New Route from Registration",
+                "description": f"New company '{company_name}' registered with route '{start_location} → {end_location}'",
+                "type": "route_added",
+                "is_read": False,
+                "created_at": datetime.utcnow().isoformat(),
+                "data": {
+                    "route_id": inserted_id,
+                    "route_name": f"{start_location} → {end_location}",
+                    "company_name": company_name,
+                    "company_id": company_id,
+                    "company_code": company_code,
+                    "start_location": start_location,
+                    "end_location": end_location,
+                    "landmark_details_start": landmark_details_start,
+                    "landmark_details_end": landmark_details_end
+                }
+            }
+        }
+        
+        # Save notification to database
+        try:
+            db_notification = {
+                "title": "New Route from Registration",
+                "description": f"New company '{company_name}' registered with route '{start_location} → {end_location}'",
+                "type": "route_added",
+                "recipient_roles": ["superadmin"],
+                "recipient_ids": [],
+                "data": notification_data["notification"]["data"],
+                "is_read": False,
+                "created_at": datetime.utcnow(),
+                "created_by": "system"
+            }
+            
+            notifications_collection.insert_one(db_notification)
+            print("💾 DEBUG: Notification saved to database")
+            
+        except Exception as db_error:
+            print(f"⚠️ DEBUG: Failed to save notification: {str(db_error)}")
+        
+        # Broadcast to WebSocket
+        try:
+            await routes_all_manager.broadcast(notification_data)
+            print(f"✅ DEBUG: Real-time notification sent")
+        except Exception as ws_error:
+            print(f"⚠️ DEBUG: WebSocket broadcast failed: {str(ws_error)}")
+        
+        return {
+            "success": True,
+            "message": "Route created successfully",
+            "inserted_id": inserted_id,
+            "route_details": {
+                "start_location": start_location,
+                "end_location": end_location,
+                "company_name": company_name
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ DEBUG: Error in route-register-public: {str(e)}")
+        import traceback
+        print(f"❌ DEBUG: Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to create route: {str(e)}")
 
 @router.get("/all/routes", response_model=List[DeclaredRouteModel])
 async def get_all_declared_routes(current_user: dict = Depends(super_and_admin_required)):
