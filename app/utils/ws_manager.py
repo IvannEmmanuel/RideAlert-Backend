@@ -53,7 +53,6 @@ class RoleBasedConnectionManager:
         }
 
     async def connect(self, websocket: WebSocket, user_role: str = "all"):
-        await websocket.accept()
         if user_role in self.active_connections:
             self.active_connections[user_role].append(websocket)
         self.active_connections["all"].append(websocket)

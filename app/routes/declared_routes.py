@@ -236,7 +236,6 @@ async def upload_declared_route(
             "landmark_details_start": landmark_details_start.strip() if landmark_details_start else "",
             "landmark_details_end": landmark_details_end.strip() if landmark_details_end else "",
             "route_geojson": route_geojson_dict,
-            "created_by": current_user.get("username", "Unknown Admin"),
             "created_by_id": current_user.get("id", ""),
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow()
@@ -260,8 +259,8 @@ async def upload_declared_route(
             "type": "new_route_notification",
             "notification": {
                 "id": inserted_id,
-                "title": "New Route Created 🚌",
-                "description": f"New route '{start_location} → {end_location}' was created by {current_user.get('username', 'Unknown Admin')} from {company_name}",
+                "title": "New Route Created",
+                "description": f"New route '{start_location} → {end_location}' from {company_name}",
                 "type": "route_added",
                 "is_read": False,
                 "created_at": datetime.utcnow().isoformat(),
@@ -269,7 +268,6 @@ async def upload_declared_route(
                     "route_id": inserted_id,
                     "route_name": f"{start_location} → {end_location}",
                     "company_name": company_name,
-                    "created_by": current_user.get("username", "Unknown Admin"),
                     "created_by_id": current_user.get("id", ""),
                     "company_id": company_id,
                     "start_location": start_location,
@@ -285,8 +283,8 @@ async def upload_declared_route(
             from app.database import notifications_collection
             
             db_notification = {
-                "title": "New Route Created 🚌",
-                "description": f"New route '{start_location} → {end_location}' was created by {current_user.get('username', 'Unknown Admin')} from {company_name}",
+                "title": "New Route Created",
+                "description": f"New route '{start_location} → {end_location}' from {company_name}",
                 "type": "route_added",
                 "recipient_roles": ["superadmin"],  # Only superadmins can see route creation notifications
                 "recipient_ids": [],  # Empty = all superadmins
@@ -294,7 +292,6 @@ async def upload_declared_route(
                     "route_id": inserted_id,
                     "route_name": f"{start_location} → {end_location}",
                     "company_name": company_name,
-                    "created_by": current_user.get("username", "Unknown Admin"),
                     "created_by_id": current_user.get("id", ""),
                     "company_id": company_id,
                     "start_location": start_location,
