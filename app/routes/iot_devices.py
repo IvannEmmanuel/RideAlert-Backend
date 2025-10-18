@@ -5,7 +5,7 @@ from app.database import get_iot_devices_collection, vehicle_collection, get_fle
 from bson import ObjectId
 from datetime import datetime
 from typing import List, Dict, Optional
-from app.dependencies.roles import super_admin_required, admin_required, user_or_admin_required
+from app.dependencies.roles import super_admin_required, admin_required, user_or_admin_required, super_and_admin_required
 from app.schemas.iot_devices import IoTDeviceModel
 from app.utils.ws_manager import iot_device_all_manager, FleetConnectionManager
 
@@ -222,7 +222,7 @@ def get_iot_device(device_id: str):
 
 
 @router.patch("/{device_id}", response_model=IoTDevicePublic)
-async def update_iot_device(device_id: str, payload: dict = Body(...), current_user: Dict = Depends(user_or_admin_required)):
+async def update_iot_device(device_id: str, payload: dict = Body(...), current_user: Dict = Depends(super_and_admin_required)):
     """
     Update fields of an IoT device and broadcast updated list.
     """
