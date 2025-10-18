@@ -684,7 +684,8 @@ async def get_vehicle(vehicle_id: str):
             "device_id": vehicle.get("device_id"),
             "plate": vehicle.get("plate"),
             "driverName": vehicle.get("driverName"),
-            "fleet_id": str(vehicle.get("fleet_id")) if vehicle.get("fleet_id") else None
+            "fleet_id": str(vehicle.get("fleet_id")) if vehicle.get("fleet_id") else None,
+            "status": vehicle.get("status"),
         }
         print(f"GET /vehicles/{vehicle_id} response: {resp}")
         return resp
