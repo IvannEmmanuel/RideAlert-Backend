@@ -217,7 +217,7 @@ async def update_route_geojson(
             "notification": {
                 "id": route_id,
                 "title": "GeoJSON File Uploaded",
-                "description": f"Superadmin {superadmin_name} has uploaded a GeoJSON file for your route '{route['start_location']} → {route['end_location']}'",
+                "description": f"{superadmin_name} has uploaded a GeoJSON file for your route '{route['start_location']} → {route['end_location']}'",
                 "type": "geojson_uploaded",
                 "is_read": False,
                 "created_at": datetime.utcnow().isoformat(),
@@ -239,7 +239,7 @@ async def update_route_geojson(
         try:
             db_notification = {
                 "title": "GeoJSON File Uploaded",
-                "description": f"Superadmin {superadmin_name} has uploaded a GeoJSON file for your route '{route['start_location']} → {route['end_location']}'",
+                "description": f"{superadmin_name} has uploaded a GeoJSON file for your route '{route['start_location']} → {route['end_location']}'",
                 "type": "geojson_uploaded",
                 "recipient_roles": ["admin"],  # Only admins of that company
                 "recipient_ids": [company_id],  # Specific to this company
