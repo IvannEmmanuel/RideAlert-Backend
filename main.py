@@ -15,9 +15,9 @@ from app.routes import models
 import app.routes.declared_routes as declared_routes
 from fastapi.middleware.cors import CORSMiddleware
 from app.utils.background_loader import background_loader
+from app.middleware.token_validation import token_validation_middleware  # ADD THIS
 from contextlib import asynccontextmanager
 from app.workers.proximity_checker import start_proximity_checker, stop_proximity_checker
-# ADD THIS IMPORT
 from app.routes.vehicle import background_eta_updater
 import logging
 import asyncio
@@ -29,7 +29,6 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global proximity_task
-    # ADD ETA TASK VARIABLE
     global eta_task
 
     # Startup
@@ -58,7 +57,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ Proximity checker startup warning: {e}")
 
-    # ADD ETA BACKGROUND UPDATER HERE
+    # Start ETA background updater
     try:
         eta_task = asyncio.create_task(background_eta_updater())
         print("✅ ETA background updater started")
@@ -82,7 +81,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ Proximity checker shutdown warning: {e}")
 
-    # ADD ETA TASK SHUTDOWN HERE
+    # Stop ETA updater
     try:
         if eta_task:
             eta_task.cancel()
@@ -96,20 +95,24 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+# Add CORS middleware first
 app.add_middleware(
     CORSMiddleware,
-    # Allow all origins, adjust as needed
     allow_origins=["http://localhost:5173",
                    "https://ride-alert-admin-panel.vercel.app",
                    "http://localhost:5174",
                    "http://localhost:8081",
                    "https://ridealertadminpanel.onrender.com"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all methods, adjust as needed
-    allow_headers=["*"],  # Allow all headers, adjust as needed
-    expose_headers=["*"]  # Add this line
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"]
 )
 
+# Add token validation middleware AFTER CORS
+app.middleware("http")(token_validation_middleware)
+
+# Include routers
 app.include_router(user.router)
 app.include_router(vehicle.router)
 app.include_router(ws_router)
@@ -122,15 +125,13 @@ app.include_router(email_router)
 app.include_router(declared_routes.router)
 app.include_router(route_assignment_router)
 app.include_router(notifications_collection)
-# Include other routers as needed
 
 
 @app.get("/")
 def read_root():
     return {"message": "Server is running",
             "proximity_checker": "active",
-            "eta_updater": "active"  # ADD THIS LINE
-            }
+            "eta_updater": "active"}
 
 
 @app.get("/health")
@@ -140,7 +141,7 @@ def health_check():
         "status": "healthy",
         "message": "RideAlert Backend is running",
         "proximity_checker": "active",
-        "eta_updater": "active"  # ADD THIS LINE
+        "eta_updater": "active"
     }
 
 
@@ -158,7 +159,7 @@ def server_status():
         "server": "running",
         "models": model_status,
         "proximity_checker": "running" if proximity_task and not proximity_task.done() else "stopped",
-        "eta_updater": "running" if 'eta_task' in globals() and eta_task and not eta_task.done() else "stopped"  # ADD THIS LINE
+        "eta_updater": "running" if 'eta_task' in globals() and eta_task and not eta_task.done() else "stopped"
     }
 
 
@@ -169,12 +170,10 @@ def reload_models():
         if background_loader.is_loading:
             return {"message": "Models are already loading", "status": "loading"}
 
-        # Reset the loader state
         background_loader.load_complete = False
         background_loader.load_error = None
         background_loader.is_loading = True
 
-        # Start actual model loading in background thread
         import threading
 
         def load_models_now():
@@ -183,20 +182,13 @@ def reload_models():
                 print(
                     f"📊 Initial state: loading={background_loader.is_loading}, complete={background_loader.load_complete}, error={background_loader.load_error}")
 
-                # Try memory-optimized loading
                 print("🧠 Attempting memory-optimized model loading...")
                 import gc
-                import os
-
-                # Force garbage collection before loading
                 gc.collect()
 
-                # Load models with memory optimization
                 try:
                     print("📦 Loading models with memory optimization...")
                     background_loader.ml_manager._load_all()
-
-                    # Force garbage collection after loading
                     gc.collect()
 
                     background_loader.load_complete = True
@@ -228,7 +220,6 @@ def reload_models():
                 background_loader.is_loading = False
                 background_loader.load_complete = False
 
-        # Start in daemon thread
         thread = threading.Thread(target=load_models_now)
         thread.daemon = True
         thread.start()
