@@ -16,6 +16,7 @@ from pydantic import ValidationError, BaseModel #added
 import base64 #added
 from fastapi.responses import StreamingResponse  #added
 import io #added
+from app.utils.email_sender import approval_email_sender  # Add this import
 
 router = APIRouter(prefix="/fleets", tags=["Fleets"])
 
@@ -467,35 +468,112 @@ async def approve_fleet(fleet_id: str, current_user: dict = Depends(super_admin_
     Approve a fleet registration by setting its role to 'admin' and updating timestamps.
     Only accessible by superadmin.
     """
-    collection = get_fleets_collection
+    try:
+        print(f"🔧 Starting fleet approval for: {fleet_id}")
+        
+        collection = get_fleets_collection
 
-    if not ObjectId.is_valid(fleet_id):
-        raise HTTPException(status_code=400, detail="Invalid fleet ID format")
+        if not ObjectId.is_valid(fleet_id):
+            raise HTTPException(status_code=400, detail="Invalid fleet ID format")
 
-    now = datetime.utcnow()
-    # Record approver information (use email if available, otherwise user_id)
-    approver = current_user.get("email") or current_user.get("user_id") or current_user.get("id")
-    update_payload = {"role": "admin", "last_updated": now, "approved_by": approver, "approved_in": now}
-    result = collection.update_one(
-        {"_id": ObjectId(fleet_id)},
-        {"$set": update_payload}
-    )
+        # Get the fleet data first to extract email
+        fleet = collection.find_one({"_id": ObjectId(fleet_id)})
+        if not fleet:
+            raise HTTPException(status_code=404, detail="Fleet not found")
 
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Fleet not found")
+        print(f"📋 Found fleet: {fleet.get('company_name')}")
+        
+        now = datetime.utcnow()
+        # Record approver information
+        approver = current_user.get("email") or current_user.get("user_id") or current_user.get("id")
+        update_payload = {
+            "role": "admin", 
+            "last_updated": now, 
+            "approved_by": approver, 
+            "approved_in": now,
+            "is_active": True
+        }
+        
+        print(f"🔄 Updating fleet with: {update_payload}")
+        
+        result = collection.update_one(
+            {"_id": ObjectId(fleet_id)},
+            {"$set": update_payload}
+        )
 
-    updated_fleet = collection.find_one({"_id": ObjectId(fleet_id)})
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Fleet not found")
 
-    # Broadcast updated fleet list and count
-    total_fleets = collection.count_documents({"role": {"$ne": "superadmin"}})
-    await fleet_count_manager.broadcast({"total_fleets": total_fleets})
-    await broadcast_fleet_list()
-    await broadcast_fleet_details(fleet_id)
+        updated_fleet = collection.find_one({"_id": ObjectId(fleet_id)})
+        print(f"✅ Fleet updated successfully")
 
-    return {
-        "message": "Fleet approved successfully",
-        "fleet": fleets(updated_fleet)
-    }
+        # Send approval email
+        email_sent = False
+        company_email = None
+        
+        try:
+            # Extract company email from fleet data
+            contact_info = fleet.get('contact_info', [{}])
+            print(f"📧 Contact info: {contact_info}")
+            
+            if contact_info and isinstance(contact_info, list) and len(contact_info) > 0:
+                company_email = contact_info[0].get('email')
+            
+            company_name = fleet.get('company_name', 'Valued Customer')
+            print(f"📧 Company email: {company_email}, Name: {company_name}")
+            
+            if company_email and company_email != "N/A" and company_email != "N/A":
+                print(f"📨 Attempting to send approval email to: {company_email}")
+                # Send approval email
+                email_sent = approval_email_sender.send_approval_email(
+                    company_email=company_email,
+                    company_name=company_name,
+                    login_credentials={
+                        'email': company_email,
+                        'company_name': company_name,
+                        'login_url': 'https://ridealertadminpanel.onrender.com'
+                    }
+                )
+                
+                if email_sent:
+                    print(f"✅ Approval email sent to {company_email}")
+                else:
+                    print(f"⚠️ Fleet approved but failed to send email to {company_email}")
+            else:
+                print(f"⚠️ No valid email found for fleet {fleet_id}")
+                
+        except Exception as e:
+            print(f"❌ Error in email sending: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            # Don't raise error - fleet is still approved even if email fails
+
+        # Broadcast updated fleet list and count
+        print("🔄 Broadcasting fleet updates...")
+        total_fleets = collection.count_documents({"role": {"$ne": "superadmin"}})
+        await fleet_count_manager.broadcast({"total_fleets": total_fleets})
+        await broadcast_fleet_list()
+        await broadcast_fleet_details(fleet_id)
+
+        print(f"🎉 Fleet approval completed for {fleet_id}")
+        
+        return {
+            "message": "Fleet approved successfully",
+            "fleet": fleets(updated_fleet),
+            "email_sent": email_sent,
+            "company_email": company_email
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ CRITICAL ERROR in approve_fleet: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
 
 @router.patch("/{fleet_id}/reject", dependencies=[Depends(super_admin_required)])
 async def reject_fleet(fleet_id: str):
