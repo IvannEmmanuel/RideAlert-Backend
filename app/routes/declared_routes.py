@@ -591,23 +591,43 @@ async def upload_declared_route_public(
         raise HTTPException(status_code=500, detail=f"Failed to create route: {str(e)}")
 
 @router.get("/all/routes", response_model=List[DeclaredRouteModel])
-async def get_all_declared_routes(current_user: dict = Depends(super_and_admin_required)):
+async def get_all_declared_routes(current_user: dict = Depends(admin_required)):
+    """
+    Get all routes for the current user's company only
+    """
     try:
-        routes = list(get_declared_routes_collection.find())
+        # Debug: Log current user
+        print(f"🔍 DEBUG: current_user = {current_user}")
         
-        # Get all company names - convert both to string for matching
-        fleets = list(get_fleets_collection.find({}, {"_id": 1, "company_name": 1}))
-        company_map = {str(fleet["_id"]): fleet["company_name"] for fleet in fleets}
+        # Get the current user's company ID (use fleet_id, not id)
+        company_id = current_user.get("fleet_id")
+        print(f"🔍 DEBUG: company_id = {company_id}")
         
-        # Add company names to routes
+        if not company_id:
+            raise HTTPException(status_code=400, detail="User company ID not found")
+        
+        # Find all routes for this specific company
+        routes = list(get_declared_routes_collection.find({"company_id": company_id}))
+        print(f"✅ DEBUG: Found {len(routes)} routes for company {company_id}")
+        
+        # Get company name
+        fleet = get_fleets_collection.find_one({"_id": ObjectId(company_id)})
+        company_name = fleet.get("company_name", "Unknown Company") if fleet else "Unknown Company"
+        print(f"🏢 DEBUG: company_name = {company_name}")
+        
+        # Add company name to each route
         for route in routes:
             route["_id"] = str(route["_id"])
-            # Convert company_id to string for lookup
-            company_id_str = str(route["company_id"])
-            route["company_name"] = company_map.get(company_id_str, "Unknown Company")
+            route["company_name"] = company_name
             
-        return [DeclaredRouteModel(**route) for route in routes]
+        result = [DeclaredRouteModel(**route) for route in routes]
+        print(f"📤 DEBUG: Returning {len(result)} routes")
+        return result
+    
     except Exception as e:
+        print(f"❌ ERROR in GET /all/routes: {e}")
+        import traceback
+        print(f"❌ Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
     
 @router.get("/routes/{fleet_id}", response_model=List[dict])
