@@ -32,10 +32,10 @@ class FleetBase(BaseModel):
     role: FleetRole = FleetRole.unverified
     last_updated: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    max_vehicles: str
+    max_vehicles: int
 
     @property
-    def plan_price(self) -> int:
+    def plan_price(self) -> float:
         """Returns the price for the subscription plan in PHP."""
         prices = {
             SubscriptionPlan.basic: 250,
