@@ -7,17 +7,20 @@ from datetime import datetime
 from typing import List, Dict, Optional
 from app.dependencies.roles import super_admin_required
 from app.utils.pasword_hashing import hash_password, verify_password
-from app.utils.auth_token import create_access_token
+from app.utils.auth_token import create_access_token, create_refresh_token, verify_refresh_token
 from fastapi.encoders import jsonable_encoder
 from app.schemas.fleets import SubscriptionPlan
 from app.utils.ws_manager import fleet_all_manager, fleet_count_manager, fleet_details_manager
 import json #added
-from pydantic import ValidationError #added
+from pydantic import ValidationError, BaseModel #added
 import base64 #added
 from fastapi.responses import StreamingResponse  #added
 import io #added
 
 router = APIRouter(prefix="/fleets", tags=["Fleets"])
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
 
 plan_prices = {
     SubscriptionPlan.basic: 250,
@@ -257,13 +260,45 @@ async def login_fleet(email: str = Body(...), password: str = Body(...)):
     }
 
     access_token = create_access_token(token_data)
+    refresh_token = create_refresh_token(token_data)
 
     fleet_data = fleets(fleet)
     return {
         "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer",
         "message": "Login successful",
         "fleet": fleet_data
+    }
+
+@router.post("/refresh")
+async def refresh_access_token(request: RefreshTokenRequest):
+    """
+    Refresh an access token using a refresh token.
+    
+    Expected request body:
+    {
+        "refresh_token": "your_refresh_token_here"
+    }
+    """
+    refresh_token = request.refresh_token
+    
+    if not refresh_token:
+        raise HTTPException(status_code=400, detail="refresh_token is required")
+
+    payload = verify_refresh_token(refresh_token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+
+    new_access_token = create_access_token({
+        "fleet_id": payload["fleet_id"],
+        "email": payload["email"],
+        "role": payload["role"],
+    })
+
+    return {
+        "access_token": new_access_token,
+        "token_type": "bearer"
     }
 
 @router.get("/all")

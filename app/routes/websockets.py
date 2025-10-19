@@ -9,16 +9,86 @@ from typing import Dict, List, Optional
 import asyncio
 from datetime import datetime
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
 ws_router = APIRouter(tags=["WebSocket"])
 
 vehicle_subscribers: Dict[str, List[WebSocket]] = {}
-# Add new subscribers for vehicle location updates via IoT predictions
-# vehicle_id -> subscribers (since each vehicle has one paired IoT device)
-# Global vehicle location feed
 all_vehicle_updates_subscribers: List[WebSocket] = []
+fleet_subscribers: Dict[str, List[WebSocket]] = {}
+fleet_last_state: Dict[str, str] = {}
+
+async def get_available_vehicles(fleet_id: str) -> List[dict]:
+    """Fetch available vehicles with locations"""
+    query = {
+        "fleet_id": fleet_id,
+        "location.latitude": {"$ne": None},
+        "location.longitude": {"$ne": None}
+    }
+    
+    vehicles = []
+    for vehicle in vehicle_collection.find(query):
+        # Only include available and full vehicles
+        status = vehicle.get("status", "unavailable")
+        if status in ["available", "full"]:
+            vehicles.append({
+                "id": str(vehicle["_id"]),
+                "location": vehicle.get("location"),
+                "available_seats": vehicle.get("available_seats", 0),
+                "route": vehicle.get("route", ""),
+                "driverName": vehicle.get("driverName", ""),
+                "plate": vehicle.get("plate", ""),
+                "status": status,
+                "bound_for": vehicle.get("bound_for"),
+                "status_details": vehicle.get("status_detail")
+            })
+    
+    return vehicles
+
+async def broadcast_to_fleet(fleet_id: str, vehicles: List[dict]) -> bool:
+    """Broadcast vehicles to all subscribers of a fleet if data changed. Returns True if sent."""
+    if fleet_id not in fleet_subscribers or not fleet_subscribers[fleet_id]:
+        return False
+    
+    current_state = json.dumps(vehicles, sort_keys=True, default=str)
+    
+    # Only send if state changed
+    if fleet_last_state.get(fleet_id) == current_state:
+        return False
+    
+    fleet_last_state[fleet_id] = current_state
+    
+    data = {
+        "vehicles": vehicles,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+    
+    subscribers = fleet_subscribers[fleet_id].copy()
+    disconnected = []
+    
+    for ws in subscribers:
+        try:
+            await ws.send_json(data)
+        except (WebSocketDisconnect, RuntimeError) as e:
+            logger.debug(f"Error sending to subscriber: {e}")
+            disconnected.append(ws)
+    
+    # Remove disconnected clients
+    for ws in disconnected:
+        try:
+            if ws in fleet_subscribers[fleet_id]:
+                fleet_subscribers[fleet_id].remove(ws)
+        except (KeyError, ValueError):
+            pass
+    
+    # Cleanup if no more subscribers
+    if fleet_id in fleet_subscribers and not fleet_subscribers[fleet_id]:
+        fleet_subscribers.pop(fleet_id, None)
+        fleet_last_state.pop(fleet_id, None)
+    
+    return True
 
 async def broadcast_vehicle_location_update(vehicle_id: str, latitude: float, longitude: float, device_id: str = None):
     """Broadcast vehicle location update to all subscribers"""
@@ -357,38 +427,60 @@ async def all_vehicles_ws(websocket: WebSocket, fleet_id: str):
 
 @ws_router.websocket("/ws/vehicles/available/{fleet_id}")
 async def available_vehicles_ws(websocket: WebSocket, fleet_id: str):
-    """Stream only available vehicles that have a location"""
+    """
+    WebSocket that polls database every 2 seconds for vehicle changes.
+    Only broadcasts when vehicle data actually changes.
+    """
     await websocket.accept()
+    
+    # Add subscriber
+    if fleet_id not in fleet_subscribers:
+        fleet_subscribers[fleet_id] = []
+    
+    fleet_subscribers[fleet_id].append(websocket)
+    logger.info(f"Client connected to fleet {fleet_id}. Total subscribers: {len(fleet_subscribers[fleet_id])}")
+    
     try:
+        # Send initial data immediately
+        vehicles = await get_available_vehicles(fleet_id)
+        await websocket.send_json({
+            "vehicles": vehicles,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+        fleet_last_state[fleet_id] = json.dumps(vehicles, sort_keys=True, default=str)
+        
+        # Poll for changes every 2 seconds
         while True:
-            vehicles = []
-            # Query: only available vehicles with non-null latitude and longitude
-            query = {
-                "fleet_id": fleet_id,
-                "status": {"$in": ["available", "full"]},
-                "location.latitude": {"$ne": None},
-                "location.longitude": {"$ne": None}
-            }
-
-            for vehicle in vehicle_collection.find(query):
-                vehicles.append({
-                    "id": str(vehicle["_id"]),
-                    "location": vehicle.get("location"),
-                    "available_seats": vehicle.get("available_seats", 0),
-                    "route": vehicle.get("route", ""),
-                    "driverName": vehicle.get("driverName", ""),
-                    "plate": vehicle.get("plate", ""),
-                    "status": vehicle.get("status", "unavailable"),
-                    "bound_for": vehicle.get("bound_for"),
-                    "status_details": vehicle.get("status_detail")
-                })
-
-            await websocket.send_json(vehicles)
-            await asyncio.sleep(5)  # send updates every 5 seconds
-
+            await asyncio.sleep(2)
+            
+            # Check if still connected
+            if fleet_id not in fleet_subscribers or websocket not in fleet_subscribers[fleet_id]:
+                break
+            
+            try:
+                vehicles = await get_available_vehicles(fleet_id)
+                await broadcast_to_fleet(fleet_id, vehicles)
+            except Exception as e:
+                logger.error(f"Error fetching vehicles for fleet {fleet_id}: {e}")
+                break
+    
     except WebSocketDisconnect:
-        print(f"Available vehicle stream for fleet {fleet_id} disconnected")
-
+        logger.info(f"Client disconnected from fleet {fleet_id}")
+        if fleet_id in fleet_subscribers and websocket in fleet_subscribers[fleet_id]:
+            fleet_subscribers[fleet_id].remove(websocket)
+        
+        if fleet_id in fleet_subscribers and not fleet_subscribers[fleet_id]:
+            fleet_subscribers.pop(fleet_id)
+            fleet_last_state.pop(fleet_id, None)
+    
+    except Exception as e:
+        logger.error(f"Error in available_vehicles_ws for fleet {fleet_id}: {e}")
+        if fleet_id in fleet_subscribers and websocket in fleet_subscribers[fleet_id]:
+            fleet_subscribers[fleet_id].remove(websocket)
+        try:
+            await websocket.close()
+        except:
+            pass
 
 # New WebSocket endpoint for vehicle-specific location monitoring via IoT predictions
 @ws_router.websocket("/ws/vehicle/{vehicle_id}/location")
