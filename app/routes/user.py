@@ -1,13 +1,14 @@
 from fastapi import APIRouter, HTTPException, Depends, Body, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 from app.schemas.user import UserCreate, UserInDB, UserLogin, Location
 from app.dependencies.auth import get_current_user
 from app.schemas.refresh_token import TokenRefreshRequest
 from app.database import user_collection, vehicle_collection, get_fleets_collection
-from app.utils.auth_token import verify_access_token
+from app.utils.auth_token import verify_access_token, verify_refresh_token
 from app.models.user import user_helper
 from app.schemas.user import Location as UserLocation
 from bson import ObjectId
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 from app.utils.pasword_hashing import hash_password, verify_password
 from app.utils.auth_token import create_access_token, create_refresh_token
 from fastapi.responses import JSONResponse
@@ -18,6 +19,9 @@ import logging
 class LocationUpdate(BaseModel):
     latitude: float
     longitude: float
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +44,6 @@ async def create_user(user: UserCreate):
 
     return user_helper(created_user)
 
-# ✅ KEEP THIS ONE ABOVE THE GENERIC /{user_id} route
 @router.get("/me")
 def get_me(current_user: dict = Depends(get_current_user)):
     user_id = current_user.get("user_id")
@@ -108,25 +111,38 @@ def login_user(login_data: UserLogin):
             "role": user.get("role"),
             "location": user.get("location", {}),
             "fleet_id": user.get("fleet_id"),
-            "notify": user.get("notify", False),  # ✅ Include notify status
-            "selected_vehicle_id": user.get("selected_vehicle_id"),  # ✅ Include selected vehicle
-            "company_name": company_name  # ✅ added here
+            "notify": user.get("notify", False),
+            "selected_vehicle_id": user.get("selected_vehicle_id"),
+            "company_name": company_name
         }
     })
 
 @router.post("/refresh-token")
-def refresh_token(request: TokenRefreshRequest):
-    payload = verify_access_token(request.refresh_token)
+async def refresh_access_token(request: RefreshTokenRequest):
+    """
+    Refresh an access token using a refresh token.
+    
+    Expected request body:
+    {
+        "refresh_token": "your_refresh_token_here"
+    }
+    """
+    refresh_token = request.refresh_token
+    
+    if not refresh_token:
+        raise HTTPException(status_code=400, detail="refresh_token is required")
+
+    payload = verify_refresh_token(refresh_token)
     if not payload:
-        raise HTTPException(401, "Invalid or expired refresh token")
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
     new_access_token = create_access_token({
         "user_id": payload["user_id"],
         "email": payload["email"],
         "role": payload["role"]
     })
-    
-    return JSONResponse({"access_token": new_access_token})
+
+    return {"access_token": new_access_token, "token_type": "bearer"}
 
 @router.post("/location")
 async def update_user_location_http(
