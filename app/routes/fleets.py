@@ -16,7 +16,7 @@ from pydantic import ValidationError, BaseModel #added
 import base64 #added
 from fastapi.responses import StreamingResponse  #added
 import io #added
-from app.utils.email_sender import approval_email_sender  # Add this import
+from app.utils.email_sender import approval_email_sender, rejection_email_sender  # Add this import
 
 router = APIRouter(prefix="/fleets", tags=["Fleets"])
 
@@ -575,21 +575,33 @@ async def approve_fleet(fleet_id: str, current_user: dict = Depends(super_admin_
             detail=f"Internal server error: {str(e)}"
         )
 
-@router.patch("/{fleet_id}/reject", dependencies=[Depends(super_admin_required)])
-async def reject_fleet(fleet_id: str):
+@router.patch("/{fleet_id}/reject")
+async def reject_fleet(fleet_id: str, current_user: dict = Depends(super_admin_required)):
     """
-    Reject a fleet registration by setting its role to 'rejected' and updating timestamps.
-    Only accessible by superadmin.
+    Reject a fleet registration - simple version without rejection reason
     """
     collection = get_fleets_collection
 
     if not ObjectId.is_valid(fleet_id):
         raise HTTPException(status_code=400, detail="Invalid fleet ID format")
 
+    # Get the fleet data first to extract email
+    fleet = collection.find_one({"_id": ObjectId(fleet_id)})
+    if not fleet:
+        raise HTTPException(status_code=404, detail="Fleet not found")
+
     now = datetime.utcnow()
+    rejecter = current_user.get("email") or current_user.get("user_id") or current_user.get("id")
+    update_payload = {
+        "role": "rejected", 
+        "last_updated": now, 
+        "rejected_by": rejecter, 
+        "rejected_in": now
+    }
+    
     result = collection.update_one(
         {"_id": ObjectId(fleet_id)},
-        {"$set": {"role": "rejected", "last_updated": now}}
+        {"$set": update_payload}
     )
 
     if result.matched_count == 0:
@@ -597,7 +609,26 @@ async def reject_fleet(fleet_id: str):
 
     updated_fleet = collection.find_one({"_id": ObjectId(fleet_id)})
 
-    # Broadcast updated fleet list and count
+    # Send rejection email
+    email_sent = False
+    company_email = None
+    
+    try:
+        contact_info = fleet.get('contact_info', [{}])
+        if contact_info and isinstance(contact_info, list) and len(contact_info) > 0:
+            company_email = contact_info[0].get('email')
+        company_name = fleet.get('company_name', 'Valued Customer')
+        
+        if company_email and company_email != "N/A":
+            email_sent = rejection_email_sender.send_rejection_email(
+                company_email=company_email,
+                company_name=company_name
+            )
+            
+    except Exception as e:
+        print(f"Error sending rejection email: {e}")
+
+    # Broadcast updates
     total_fleets = collection.count_documents({"role": {"$ne": "superadmin"}})
     await fleet_count_manager.broadcast({"total_fleets": total_fleets})
     await broadcast_fleet_list()
@@ -605,7 +636,9 @@ async def reject_fleet(fleet_id: str):
 
     return {
         "message": "Fleet rejected successfully",
-        "fleet": fleets(updated_fleet)
+        "fleet": fleets(updated_fleet),
+        "email_sent": email_sent,
+        "company_email": company_email
     }
 
 @router.get("/{fleet_id}/pdf/{filename}")
