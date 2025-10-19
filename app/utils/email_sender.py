@@ -166,7 +166,7 @@ class EmailSender:
             <body>
                 <div class="container">
                     <div class="header">
-                        <h1>🚗 RideAlert</h1>
+                        <h1>RideAlert</h1>
                         <p>Vehicle Tracking & Management System</p>
                     </div>
                     <div class="content">
@@ -180,9 +180,9 @@ class EmailSender:
                             <div class="otp">{otp}</div>
                         </div>
                         
-                        <div class="note">
+                        <div>
                             <p style="margin: 0; color: #9a3412;">
-                                <strong>⏰ Security Notice:</strong> This verification code will expire in <strong>10 minutes</strong> for your protection.
+                                <strong>Security Notice:</strong> This verification code will expire in <strong>10 minutes</strong> for your protection.
                             </p>
                         </div>
                         
@@ -197,7 +197,7 @@ class EmailSender:
                         </p>
                         <p style="margin: 0; font-size: 12px; opacity: 0.7;">
                             This is an automated message. Please do not reply to this email.<br>
-                            &copy; 2024 RideAlert. All rights reserved.
+                            &copy; 2025 RideAlert. All rights reserved.
                         </p>
                     </div>
                 </div>
@@ -265,5 +265,187 @@ class EmailSender:
             traceback.print_exc()
             return False
 
+class ApprovalEmailSender:
+    def __init__(self):
+        self.brevo_api_key = os.getenv("BREVO_API_KEY")
+        self.brevo_from_email = os.getenv("BREVO_FROM_EMAIL", "noreply@ridealert.com")
+    
+    def send_approval_email(self, company_email: str, company_name: str, login_credentials: dict = None) -> bool:
+        """
+        Send approval email to company with login credentials
+        """
+        try:
+            print(f"📧 Sending approval email to: {company_email}")
+            
+            if not self.brevo_api_key:
+                error_msg = "Brevo configuration incomplete - check BREVO_API_KEY"
+                print(f"❌ {error_msg}")
+                return False
+            
+            url = "https://api.brevo.com/v3/smtp/email"
+            headers = {
+                "accept": "application/json",
+                "api-key": self.brevo_api_key,
+                "content-type": "application/json"
+            }
+            
+            # Email content for approval
+            html_content = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Registration Approved - RideAlert</title>
+                <style>
+                    body {{ 
+                        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+                        line-height: 1.6; 
+                        color: #333333; 
+                        margin: 0;
+                        padding: 0;
+                        background-color: #f8f9fa;
+                    }}
+                    .container {{ 
+                        max-width: 600px; 
+                        margin: 0 auto; 
+                        background: #ffffff;
+                        border-radius: 12px;
+                        overflow: hidden;
+                        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                    }}
+                    .header {{ 
+                        background: linear-gradient(135deg, #10b981, #059669); 
+                        color: white; 
+                        padding: 40px 30px; 
+                        text-align: center; 
+                    }}
+                    .content {{ 
+                        padding: 40px 30px; 
+                        background: #ffffff;
+                    }}
+                    .success-icon {{
+                        font-size: 48px;
+                        text-align: center;
+                        margin-bottom: 20px;
+                    }}
+                    .credentials {{
+                        background: #f0fdf4;
+                        border: 2px solid #bbf7d0;
+                        border-radius: 8px;
+                        padding: 20px;
+                        margin: 20px 0;
+                    }}
+                    .footer {{ 
+                        text-align: center; 
+                        padding: 30px; 
+                        color: #64748b; 
+                        font-size: 13px;
+                        background: #f8f9fa;
+                        border-top: 1px solid #e2e8f0;
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h1>Registration Approved</h1>
+                        <p>Welcome to RideAlert Fleet Management</p>
+                    </div>
+                    <div class="content">
+                        <h2>Congratulations, {company_name}!</h2>
+                        
+                        <p>Your company registration has been <strong>approved</strong> and your fleet management account is now active.</p>
+                        
+                        <p>You can now access the RideAlert dashboard to manage your vehicles, track routes, and utilize all the features included in your selected plan.</p>
+                        
+                        <div class="credentials">
+                            <h3>Login Credentails:</h3>
+                            <p><strong>Email:</strong> {company_email}</p>
+                            <p><strong>Password:</strong> Use the password you created during registration</p>
+                            <p><strong>Login URL:</strong> <a href="{login_credentials.get('login_url', 'https://ridealertadminpanel.onrender.com')}">Access Your Dashboard</a></p>
+                        </div>
+                        
+                        <p><strong>Next Steps:</strong></p>
+                        <ul>
+                            <li>Log in to your dashboard</li>
+                            <li>Set up your vehicle fleet</li>
+                            <li>Add drivers and assign vehicles</li>
+                            <li>Configure your tracking preferences</li>
+                        </ul>
+                        
+                        <p>If you have any questions or need assistance, please contact our support team.</p>
+                    </div>
+                    <div class="footer">
+                        <p style="margin: 0 0 10px 0;">
+                            <strong>RideAlert Team</strong><br>
+                            Vehicle Tracking & Management Solutions
+                        </p>
+                        <p style="margin: 0; font-size: 12px; opacity: 0.7;">
+                            This is an automated message. Please do not reply to this email.<br>
+                            &copy; 2025 RideAlert. All rights reserved.
+                        </p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
+            
+            payload = {
+                "sender": {
+                    "name": "RideAlert Fleet Management",
+                    "email": self.brevo_from_email
+                },
+                "to": [
+                    {
+                        "email": company_email,
+                        "name": company_name
+                    }
+                ],
+                "subject": f"🎉 Registration Approved - Welcome to RideAlert, {company_name}!",
+                "htmlContent": html_content,
+                "textContent": f"""REGISTRATION APPROVED - RIDEALERT
+
+Congratulations, {company_name}!
+
+Your company registration has been approved and your fleet management account is now active.
+
+You can now access the RideAlert dashboard to manage your vehicles and track routes.
+
+Login Details:
+• Email: {company_email}
+• Password: Use the password you created during registration
+• Login URL: {login_credentials.get('login_url', 'https://ridealertadminpanel.onrender.com/')}
+
+Next Steps:
+• Log in to your dashboard
+• Set up your vehicle fleet
+• Add drivers and assign vehicles
+• Configure your tracking preferences
+
+Need help? Contact our support team.
+
+© 2024 RideAlert. All rights reserved.
+""",
+                "tags": ["approval", "onboarding"]
+            }
+            
+            response = requests.post(url, headers=headers, json=payload)
+            
+            print(f"📨 Approval Email API Response: {response.status_code}")
+            
+            if response.status_code == 201:
+                print(f"✅ Approval email sent successfully to {company_email}")
+                return True
+            else:
+                print(f"❌ Failed to send approval email: {response.text}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error sending approval email: {e}")
+            return False
+
+# Global approval email sender instance
+approval_email_sender = ApprovalEmailSender()
 # Global email sender instance
 email_sender = EmailSender()
