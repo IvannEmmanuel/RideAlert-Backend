@@ -590,6 +590,33 @@ async def upload_declared_route_public(
         print(f"❌ DEBUG: Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to create route: {str(e)}")
 
+@router.get("/superadmin/all/routes")
+async def get_all_declared_routes(current_user: dict = Depends(super_and_admin_required)):
+    """
+    ✅ Get all declared routes (for superadmin view)
+    - No company_id filter
+    - Returns all routes from all companies
+    """
+    try:
+        routes = list(get_declared_routes_collection.find({}))  # Get everything
+
+        result = []
+        for route in routes:
+            # Convert ObjectId to string
+            route["_id"] = str(route["_id"])
+            route["company_id"] = str(route.get("company_id", ""))
+
+            # Attach company name for readability
+            fleet = get_fleets_collection.find_one({"._id": ObjectId(route["company_id"])}) if route.get("company_id") else None
+            route["company_name"] = fleet.get("company_name", "Unknown Company") if fleet else "Unknown Company"
+
+            result.append(route)
+
+        return result
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/all/routes", response_model=List[DeclaredRouteModel])
 async def get_all_declared_routes(current_user: dict = Depends(admin_required)):
     """
