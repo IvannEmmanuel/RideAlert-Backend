@@ -18,9 +18,6 @@ async def assign_route_to_vehicle(
     request: AssignRouteRequest,
     current_user: dict = Depends(admin_required)
 ):
-    """
-    Assign one or more routes to a specific vehicle
-    """
     try:
         vehicles_collection = vehicle_collection
         routes_collection = get_declared_routes_collection
@@ -28,75 +25,68 @@ async def assign_route_to_vehicle(
         print(f"DEBUG: Processing assignment for vehicle {vehicle_id}")
         print(f"DEBUG: Route IDs to assign: {request.route_ids}")
         
-        # Validate vehicle exists
+        # ✅ 1. Validate vehicle exists
         vehicle = vehicles_collection.find_one({"_id": ObjectId(vehicle_id)})
         if not vehicle:
-            print(f"DEBUG: Vehicle {vehicle_id} not found")
             raise HTTPException(status_code=404, detail="Vehicle not found")
         
-        print(f"DEBUG: Found vehicle: {vehicle.get('plate', 'Unknown')}")
-        
-        # Validate routes exist
         valid_routes = []
         invalid_routes = []
-        
+        missing_geojson_routes = []
+
+        # ✅ 2. Validate each route & check if geojson exists
         for route_id in request.route_ids:
-            print(f"DEBUG: Looking for route {route_id}")
             route = routes_collection.find_one({"_id": ObjectId(route_id)})
             if route:
-                print(f"DEBUG: Found route: {route.get('start_location', '')} → {route.get('end_location', '')}")
-                valid_routes.append({
-                    "route_id": route_id,
-                    "start_location": route.get("start_location", ""),
-                    "end_location": route.get("end_location", ""),
-                    "route_name": f"{route.get('start_location', '')} → {route.get('end_location', '')}"
-                })
+                if not route.get("route_geojson"):
+                    missing_geojson_routes.append(str(route_id))
+                else:
+                    valid_routes.append({
+                        "route_id": route_id,
+                        "start_location": route.get("start_location", ""),
+                        "end_location": route.get("end_location", ""),
+                        "route_name": f"{route.get('start_location', '')} → {route.get('end_location', '')}"
+                    })
             else:
-                print(f"DEBUG: Route {route_id} not found")
                 invalid_routes.append(route_id)
-        
+
+        # ✅ Block invalid routes
         if invalid_routes:
+            raise HTTPException(status_code=404, detail=f"Routes not found: {invalid_routes}")
+
+        # ✅ Block routes without GeoJSON file
+        if missing_geojson_routes:
             raise HTTPException(
-                status_code=404, 
-                detail=f"Routes not found: {invalid_routes}"
+                status_code=400,
+                detail=f"These routes cannot be assigned because they have no route_geojson uploaded: {missing_geojson_routes}"
             )
-        
-        # Update vehicle with assigned routes
+
+        # ✅ 3. Proceed to update vehicle only if all good
         update_data = {
-            # "assigned_routes": valid_routes,
             "current_route": valid_routes[0] if valid_routes else None,
             "last_updated": datetime.utcnow()
         }
-        
-        print(f"DEBUG: Update data: {update_data}")
-        
+
         result = vehicles_collection.update_one(
             {"_id": ObjectId(vehicle_id)},
             {"$set": update_data}
         )
-        
-        print(f"DEBUG: Update result - matched: {result.matched_count}, modified: {result.modified_count}")
-        
+
         if result.modified_count == 0:
-            print("DEBUG: No documents were modified")
             raise HTTPException(status_code=500, detail="Failed to update vehicle")
-        
-        # Verify the update
-        updated_vehicle = vehicles_collection.find_one({"_id": ObjectId(vehicle_id)})
-        # print(f"DEBUG: Updated vehicle routes: {updated_vehicle.get('assigned_routes', [])}")
-        
+
         return {
             "success": True,
             "message": f"Successfully assigned {len(valid_routes)} route(s) to vehicle",
             "assigned_routes": valid_routes,
             "vehicle_id": vehicle_id
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
-        print(f"DEBUG: Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/vehicle/{vehicle_id}/routes")
 async def get_vehicle_routes(
