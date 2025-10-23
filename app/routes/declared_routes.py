@@ -15,42 +15,28 @@ router = APIRouter(prefix="/declared_routes", tags=["Declared Routes"])
 @router.websocket("/ws/routes")
 async def websocket_endpoint(websocket: WebSocket):
     try:
-        # Let the connection manager handle the acceptance
         await routes_all_manager.connect(websocket)
-        print(f"🔌 DEBUG: WebSocket connection accepted from {websocket.client}")
-        
-        # Wait for client to identify itself with role
+
+        # Receive initial identification message
         data = await websocket.receive_text()
         message = json.loads(data)
+
         user_role = message.get("role", "all")
-        user_id = message.get("user_id", "")
-        
-        print(f"🔌 DEBUG: WebSocket authenticated - Role: {user_role}, User ID: {user_id}")
-        
-        # Also connect to notification manager with role
-        await notification_manager.connect(websocket, user_role)
-        
-        print(f"✅ DEBUG: Added to managers - routes_all_manager: {len(routes_all_manager.active_connections)}, notification_manager[{user_role}]: {len(notification_manager.active_connections.get(user_role, []))}")
-        
-        # Keep the connection alive and handle messages
+        user_id = message.get("user_id", "")  # This should be fleet_id for admins
+
+        # ✅ Now these variables are defined and can be passed
+        await notification_manager.connect(websocket, user_role=user_role, company_id=user_id)
+
         while True:
             try:
-                data = await websocket.receive_text()
-                # Optional: handle any incoming messages from client
-                # print(f"📨 DEBUG: Received message from client: {data}")
-            except Exception as e:
-                print(f"❌ DEBUG: Error receiving message: {str(e)}")
+                await websocket.receive_text()
+            except Exception:
                 break
-                
     except Exception as e:
         print(f"❌ DEBUG: WebSocket error: {str(e)}")
-        import traceback
-        print(f"❌ DEBUG: Traceback: {traceback.format_exc()}")
     finally:
-        # Clean up on disconnect
         routes_all_manager.disconnect(websocket)
         notification_manager.disconnect(websocket)
-        print(f"🔌 DEBUG: WebSocket disconnected and cleaned up")
 
 @router.delete("/{route_id}")
 async def delete_declared_route(
@@ -264,19 +250,13 @@ async def update_route_geojson(
         except Exception as db_error:
             print(f"⚠️ DEBUG: Failed to save GeoJSON notification to database: {str(db_error)}")
         
-        # Send real-time notification via WebSocket to connected admins
-        try:
-            await routes_all_manager.broadcast(notification_data)
-            print(f"📢 DEBUG: Real-time GeoJSON notification sent to {len(routes_all_manager.active_connections)} connected client(s)")
-            
-        except Exception as ws_error:
-            print(f"⚠️ DEBUG: WebSocket broadcast failed: {str(ws_error)}")
+        # ❌ REMOVE THIS - it broadcasts to everyone
+        # await routes_all_manager.broadcast(notification_data)
         
-        # Also send to notification manager for the specific company
+        # ✅ ONLY send to the specific company's admins
         try:
-            # Send to admins with role "admin"
-            await notification_manager.broadcast_to_role(notification_data, "admin")
-            print(f"👥 DEBUG: GeoJSON notification sent to admin connections")
+            await notification_manager.broadcast_to_company_admins(notification_data, company_id)
+            print(f"👥 DEBUG: GeoJSON notification sent to admin connections for company {company_id}")
         except Exception as nm_error:
             print(f"⚠️ DEBUG: Notification manager broadcast failed: {str(nm_error)}")
         
@@ -302,15 +282,15 @@ async def upload_declared_route(
     current_user: dict = Depends(admin_required)
 ):
     """
-    Create a new route and send real-time notification to superadmins
+    Create a new route and send real-time notification to superadmins and company admins.
     """
     try:
-        print(f"🚀 DEBUG: Route creation started by {current_user.get('username', 'Unknown')} (Role: {current_user.get('role', 'Unknown')})")
-        
+        print(f"🚀 DEBUG: Route creation started by {current_user.get('username', 'Unknown')}")
+
         # Validate required fields
         if not start_location.strip() or not end_location.strip():
             raise HTTPException(status_code=400, detail="Start and end locations are required")
-        
+
         # Handle GeoJSON file if provided
         route_geojson_dict = None
         if route_geojson:
@@ -322,8 +302,7 @@ async def upload_declared_route(
                 raise HTTPException(status_code=400, detail="Invalid GeoJSON file format")
             except Exception as e:
                 print(f"⚠️ DEBUG: Error processing GeoJSON: {str(e)}")
-                # Continue without GeoJSON if there's an error
-        
+
         # Prepare route data
         data = {
             "company_id": company_id,
@@ -336,21 +315,17 @@ async def upload_declared_route(
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow()
         }
-        
+
         # Insert route into database
         result = get_declared_routes_collection.insert_one(data)
         inserted_id = str(result.inserted_id)
-        
         print(f"✅ DEBUG: Route created with ID: {inserted_id}")
-        print(f"📍 DEBUG: Route: {start_location} → {end_location}")
-        
-        # Get company name for notification
+
+        # Get company name
         fleet = get_fleets_collection.find_one({"_id": ObjectId(company_id)})
         company_name = fleet.get("company_name", "Unknown Company") if fleet else "Unknown Company"
-        
-        print(f"🏢 DEBUG: Company: {company_name}")
-        
-        # Prepare real-time notification data
+
+        # Prepare notification payload
         notification_data = {
             "type": "new_route_notification",
             "notification": {
@@ -373,64 +348,38 @@ async def upload_declared_route(
                 }
             }
         }
-        
-        # Save notification to database for superadmins (for persistence)
-        try:
-            from app.database import notifications_collection
-            
-            db_notification = {
-                "title": "New Route Created",
-                "description": f"New route '{start_location} → {end_location}' from {company_name}",
-                "type": "route_added",
-                "recipient_roles": ["superadmin"],  # Only superadmins can see route creation notifications
-                "recipient_ids": [],  # Empty = all superadmins
-                "data": {
-                    "route_id": inserted_id,
-                    "route_name": f"{start_location} → {end_location}",
-                    "company_name": company_name,
-                    "created_by_id": current_user.get("id", ""),
-                    "company_id": company_id,
-                    "start_location": start_location,
-                    "end_location": end_location,
-                    "landmark_details_start": landmark_details_start,
-                    "landmark_details_end": landmark_details_end
-                },
-                "is_read": False,
-                "created_at": datetime.utcnow(),
-                "created_by": current_user.get("id", "system")
-            }
-            
-            notifications_collection.insert_one(db_notification)
-            print("💾 DEBUG: Notification saved to database for superadmins")
-            
-        except Exception as db_error:
-            print(f"⚠️ DEBUG: Failed to save notification to database: {str(db_error)}")
-            # Continue with real-time notification even if DB save fails
-        
-        # Send real-time notification via WebSocket
-        print(f"📢 DEBUG: Sending real-time notification...")
-        print(f"📊 DEBUG: Active WebSocket connections: {len(routes_all_manager.active_connections)}")
-        
-        try:
-            # Broadcast to all connected clients (real-time)
-            await routes_all_manager.broadcast(notification_data)
-            print(f"✅ DEBUG: Real-time notification sent successfully")
-            print(f"🎯 DEBUG: Notification recipients: {len(routes_all_manager.active_connections)} connected client(s)")
-            
-        except Exception as ws_error:
-            print(f"❌ DEBUG: WebSocket broadcast failed: {str(ws_error)}")
-            # Don't fail the route creation if WebSocket fails
-        
-        # Also send to notification manager for role-based filtering (if needed)
-        try:
-            superadmin_connections = len(notification_manager.active_connections.get("superadmin", []))
-            if superadmin_connections > 0:
-                await notification_manager.broadcast_to_role(notification_data, "superadmin")
-                print(f"👑 DEBUG: Also sent to {superadmin_connections} superadmin connection(s) via notification_manager")
-        except Exception as nm_error:
-            print(f"⚠️ DEBUG: Notification manager broadcast failed: {str(nm_error)}")
-        
-        # Return success response
+
+        # Save notification to database
+        db_notification = {
+            "title": "New Route Created",
+            "description": f"New route '{start_location} → {end_location}' from {company_name}",
+            "type": "route_added",
+            "recipient_roles": ["superadmin"],
+            "recipient_ids": [],
+            "data": notification_data["notification"]["data"],
+            "is_read": False,
+            "created_at": datetime.utcnow(),
+            "created_by": current_user.get("id", "system")
+        }
+
+        notifications_collection.insert_one(db_notification)
+        print("💾 DEBUG: Notification saved to database")
+
+        # Broadcast to admins of the company
+        await notification_manager.broadcast_to_company_admins(notification_data, company_id)
+        print(f"👥 DEBUG: Notification sent to company admins")
+
+        # Broadcast to all superadmins
+        await notification_manager.broadcast_to_role(notification_data, "superadmin")
+        print(f"👑 DEBUG: Notification sent to superadmins")
+
+        # Broadcast to superadmin route table
+        await routes_all_manager.broadcast({
+            "type": "new_route_notification",
+            "notification": notification_data["notification"]
+        })
+        print("📡 DEBUG: Route broadcast sent to routes_all_manager")
+
         return {
             "success": True,
             "message": "Route created successfully",
@@ -442,16 +391,13 @@ async def upload_declared_route(
             },
             "notification_sent": True
         }
-        
-    except HTTPException:
-        # Re-raise HTTP exceptions
-        raise
+
     except Exception as e:
-        print(f"❌ DEBUG: Critical error in route-register: {str(e)}")
-        print(f"❌ DEBUG: Error type: {type(e).__name__}")
+        print(f"❌ DEBUG: Error in route-register: {str(e)}")
         import traceback
         print(f"❌ DEBUG: Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to create route: {str(e)}")
+
     
 # Add this new endpoint to your declared_routes.py file
 
@@ -566,7 +512,7 @@ async def upload_declared_route_public(
         
         # Broadcast to WebSocket
         try:
-            await routes_all_manager.broadcast(notification_data)
+            await notification_manager.broadcast_to_company_admins(notification_data, company_id)
             print(f"✅ DEBUG: Real-time notification sent")
         except Exception as ws_error:
             print(f"⚠️ DEBUG: WebSocket broadcast failed: {str(ws_error)}")
