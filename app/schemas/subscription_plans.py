@@ -10,6 +10,7 @@ class SubscriptionPlanBase(BaseModel):
     max_vehicles: int = Field(..., gt=0, description="Maximum vehicles allowed")
     features: Optional[List[str]] = Field(default=[], description="List of features included")
     is_active: bool = Field(default=True, description="Whether the plan is available for selection")
+    popular: bool = Field(default=False, description="Mark this plan as featured/popular")
 
 class SubscriptionPlanCreate(SubscriptionPlanBase):
     """Schema for creating a new subscription plan"""
@@ -23,6 +24,7 @@ class SubscriptionPlanUpdate(BaseModel):
     max_vehicles: Optional[int] = Field(None, gt=0)
     features: Optional[List[str]] = None
     is_active: Optional[bool] = None
+    popular: Optional[bool] = None
 
 class SubscriptionPlanPublic(SubscriptionPlanBase):
     """Schema for public subscription plan data"""

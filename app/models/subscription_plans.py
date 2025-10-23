@@ -8,6 +8,7 @@ def subscription_plan_entity(plan: Dict[str, Any]) -> Dict[str, Any]:
         "plan_code": plan["plan_code"],
         "description": plan.get("description"),
         "price": plan["price"],
+        "popular": plan.get("popular", False),
         "max_vehicles": plan["max_vehicles"],
         "features": plan.get("features", []),
         "is_active": plan.get("is_active", True),
