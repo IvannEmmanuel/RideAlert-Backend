@@ -10,6 +10,7 @@ from app.routes.fleets import router as fleets_router
 from app.routes.email_verification import router as email_router
 from app.routes.route_assignment import router as route_assignment_router
 from app.routes.notification_web import router as notifications_collection
+from app.routes.subscription_plans import router as get_subscription_plans_collection
 from app.routes import predict
 from app.routes import models
 import app.routes.declared_routes as declared_routes
@@ -125,7 +126,7 @@ app.include_router(email_router)
 app.include_router(declared_routes.router)
 app.include_router(route_assignment_router)
 app.include_router(notifications_collection)
-
+app.include_router(get_subscription_plans_collection)
 
 @app.get("/")
 def read_root():

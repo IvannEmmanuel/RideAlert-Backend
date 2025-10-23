@@ -9,7 +9,7 @@ from app.dependencies.roles import super_admin_required
 from app.utils.pasword_hashing import hash_password, verify_password
 from app.utils.auth_token import create_access_token, create_refresh_token, verify_refresh_token
 from fastapi.encoders import jsonable_encoder
-from app.schemas.fleets import SubscriptionPlan
+# from app.schemas.fleets import SubscriptionPlan
 from app.utils.ws_manager import fleet_all_manager, fleet_count_manager, fleet_details_manager
 import json #added
 from pydantic import ValidationError, BaseModel #added
@@ -17,23 +17,13 @@ import base64 #added
 from fastapi.responses import StreamingResponse  #added
 import io #added
 from app.utils.email_sender import approval_email_sender, rejection_email_sender  # Add this import
+from app.database import get_subscription_plans_collection
+from app.models.subscription_plans import subscription_plan_entity
 
 router = APIRouter(prefix="/fleets", tags=["Fleets"])
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
-
-plan_prices = {
-    SubscriptionPlan.basic: 250,
-    SubscriptionPlan.premium: 1000,
-    SubscriptionPlan.enterprise: 2500
-}
-
-max_vehicles_limits = {
-    SubscriptionPlan.basic: 5,
-    SubscriptionPlan.premium: 25,
-    SubscriptionPlan.enterprise: 100
-}
 
 def serialize_datetime(obj):
     """Convert datetime and ObjectId objects to strings."""
@@ -175,16 +165,33 @@ async def websocket_all_fleets(websocket: WebSocket):
 #newly added create
 @router.post("/", response_model=FleetPublic)
 async def create_fleet(
-    data: str = Form(...),  # JSON string from frontend
-    business_documents: Optional[List[UploadFile]] = File(None)  # now optional
+    data: str = Form(...),
+    business_documents: Optional[List[UploadFile]] = File(None)
 ):
+    """
+    Create a new fleet with subscription plan validation.
+    The subscription_plan field should be the plan_code (e.g., "BASIC", "PREMIUM").
+    """
     collection = get_fleets_collection
+    plans_collection = get_subscription_plans_collection
 
-    # Parse and validate JSON against FleetCreate
+    # Parse and validate JSON
     try:
         payload_obj = FleetCreate(**json.loads(data))
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=e.errors())
+
+    # Validate subscription plan exists and is active
+    plan = plans_collection.find_one({
+        "plan_code": payload_obj.subscription_plan.upper(),
+        "is_active": True
+    })
+    
+    if not plan:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Subscription plan '{payload_obj.subscription_plan}' not found or inactive"
+        )
 
     # Uniqueness checks
     if collection.find_one({"company_code": payload_obj.company_code}):
@@ -192,7 +199,7 @@ async def create_fleet(
     if collection.find_one({"contact_info.email": payload_obj.contact_info[0].email}):
         raise HTTPException(status_code=400, detail="email already exists")
 
-    # Read uploaded PDFs into base64 strings
+    # Read uploaded PDFs
     pdf_files = []
     if business_documents:
         for file in business_documents:
@@ -202,7 +209,7 @@ async def create_fleet(
                 "content": base64.b64encode(file_bytes).decode("utf-8")
             })
 
-    # Prepare document for MongoDB
+    # Prepare document with subscription plan details
     now = datetime.utcnow()
     doc = payload_obj.dict()
     doc.update({
@@ -210,8 +217,9 @@ async def create_fleet(
         "last_updated": now,
         "role": "unverified",
         "is_active": True,
-        "plan_price": plan_prices[payload_obj.subscription_plan],  # ✅ Use the mapping
-        "max_vehicles": max_vehicles_limits[payload_obj.subscription_plan],  # ✅ Use the mapping
+        "subscription_plan": plan["plan_code"],  # Store plan code
+        "plan_price": plan["price"],  # Get from subscription plan
+        "max_vehicles": plan["max_vehicles"],  # Get from subscription plan
         "password": hash_password(payload_obj.password),
         "pdf_files": pdf_files
     })
@@ -226,6 +234,21 @@ async def create_fleet(
     await broadcast_fleet_list()
 
     return fleets(created)
+
+# Also add this helper endpoint to get available plans for registration
+@router.get("/available-plans")
+async def get_available_subscription_plans():
+    """
+    Get all active subscription plans for fleet registration.
+    Public endpoint - no authentication required.
+    """
+    
+    plans_collection = get_subscription_plans_collection
+    plans = list(plans_collection.find({"is_active": True}).sort("price", 1))
+    
+    return {
+        "plans": [subscription_plan_entity(plan) for plan in plans]
+    }
 
 @router.post("/login")
 async def login_fleet(email: str = Body(...), password: str = Body(...)):
