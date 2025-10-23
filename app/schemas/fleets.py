@@ -1,9 +1,8 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from datetime import datetime
 from typing import Optional, List
 from enum import Enum
 
-#added
 class PDFFile(BaseModel):
     filename: str
     content: Optional[str] = None
@@ -12,11 +11,6 @@ class FleetRole(str, Enum):
     unverified = "unverified"
     admin = "admin"
     superadmin = "superadmin"
-
-class SubscriptionPlan(str, Enum):
-    basic = "Basic"
-    premium = "Premium"
-    enterprise = "Enterprise"
 
 class ContactInfo(BaseModel):
     email: str
@@ -27,36 +21,21 @@ class FleetBase(BaseModel):
     company_name: str
     company_code: str
     contact_info: List[ContactInfo]
-    subscription_plan: SubscriptionPlan
+    subscription_plan: str  # Changed to string to accept plan_code
     is_active: Optional[bool] = None
     role: FleetRole = FleetRole.unverified
     last_updated: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    max_vehicles: int
-
-    @property
-    def plan_price(self) -> float:
-        """Returns the price for the subscription plan in PHP."""
-        prices = {
-            SubscriptionPlan.basic: 250,
-            SubscriptionPlan.premium: 1000,
-            SubscriptionPlan.enterprise: 2500
-        }
-        return prices[self.subscription_plan]
-
-    @property
-    def max_vehicles(self) -> int:
-        """Returns the max vehicles allowed for the subscription plan."""
-        limits = {
-            SubscriptionPlan.basic: 5,
-            SubscriptionPlan.premium: 25,
-            SubscriptionPlan.enterprise: 100
-        }
-        return limits[self.subscription_plan]
-    
-    #added
-    #pdf_file
+    max_vehicles: Optional[int] = None  # Will be set from subscription plan
+    plan_price: Optional[float] = None  # Will be set from subscription plan
     pdf_files: Optional[List[PDFFile]] = None
+
+    @validator('subscription_plan')
+    def validate_subscription_plan(cls, v):
+        """Validate that subscription_plan is a valid plan code"""
+        if v:
+            return v.upper()  # Normalize to uppercase
+        return v
 
 class FleetCreate(FleetBase):
     password: str  # Accept plain password for creation
