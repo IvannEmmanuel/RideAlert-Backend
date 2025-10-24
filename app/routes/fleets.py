@@ -342,6 +342,23 @@ async def get_all_fleets():
     ]
     return {"fleets": fleets_list}
 
+@router.get("/admin")
+async def get_admin_fleets():
+    """
+    Fetch only fleets with role = 'admin'.
+    """
+    collection = get_fleets_collection
+    fleet_docs = collection.find({"role": "admin"})
+    
+    fleets_list = [
+        {
+            key: serialize_datetime(value) if isinstance(value, (datetime, ObjectId)) else value
+            for key, value in fleets(f).items()
+        }
+        for f in fleet_docs
+    ]
+    return {"fleets": fleets_list}
+
 @router.websocket("/{fleet_id}/ws")
 async def websocket_fleet_details(websocket: WebSocket, fleet_id: str):
     """
