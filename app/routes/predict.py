@@ -6,7 +6,7 @@ import os
 import math
 from bson import ObjectId
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 from app.database import db
 from app.utils.tracking_logs import insert_gps_log
 from app.utils.background_loader import background_loader
@@ -213,32 +213,38 @@ async def get_prediction_status():
 
 
 @router.post("/predict")
-async def predict(request: EncryptedRequest):
+async def predict(request: Union[EncryptedRequest, PredictionRequest]):
     """
-    Handle encrypted sensor data from IoT device
+    Handle sensor data from IoT device (encrypted or plain)
+    
+    Accepts either:
+    1. Encrypted: {"encrypted_data": "base64_string"}
+    2. Plain (for testing): full sensor payload
     """
     start_time = time.time()
 
     try:
         # ===================== DECRYPTION STEP =====================
-        print("🔐 Attempting to decrypt IoT payload...")
-        try:
-            decrypted_dict = decrypt_data(request.encrypted_data)
-            print(f"✅ Decryption successful. Payload keys: {list(decrypted_dict.keys())}")
-        except ValueError as e:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Decryption failed: {str(e)}"
-            )
-
-        # Convert decrypted dict to PredictionRequest
-        try:
-            prediction_request = PredictionRequest(**decrypted_dict)
-        except Exception as e:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid payload format after decryption: {str(e)}"
-            )
+        if isinstance(request, EncryptedRequest):
+            print("🔐 Attempting to decrypt IoT payload...")
+            try:
+                decrypted_dict = decrypt_data(request.encrypted_data)
+                print(f"✅ Decryption successful. Payload keys: {list(decrypted_dict.keys())}")
+                prediction_request = PredictionRequest(**decrypted_dict)
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Decryption failed: {str(e)}"
+                )
+            except Exception as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid payload format after decryption: {str(e)}"
+                )
+        else:
+            # Plain request (testing)
+            print("📝 Using plain (non-encrypted) request")
+            prediction_request = request
 
         # ===================== REST OF PREDICTION LOGIC =====================
         # Check if models are ready
@@ -466,6 +472,8 @@ async def predict(request: EncryptedRequest):
             )
 
             print(f"✅ Successful ML prediction logged with ID: {log_id}")
+            print(f"   📊 Stored in DB: device_id={prediction_request.device_id}, fleet_id={prediction_request.fleet_id}")
+            print(f"   📊 Corrected coordinates: lat={corrected_lat:.6f}, lng={corrected_lng:.6f}")
 
         except Exception as e:
             print(f"⚠️ Warning: Failed to log successful ML prediction: {e}")
@@ -491,5 +499,6 @@ async def predict(request: EncryptedRequest):
         raise
     except Exception as e:
         error_msg = str(e)
+        print(f"❌ Prediction error: {error_msg}")
         raise HTTPException(
             status_code=500, detail=f"Prediction error: {error_msg}")
