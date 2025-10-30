@@ -20,4 +20,5 @@ gdown
 requests
 tqdm
 python-multipart
+pycryptodome
 # Optional dependencies for additional features
