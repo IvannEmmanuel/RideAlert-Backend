@@ -6,7 +6,7 @@ import os
 import math
 from bson import ObjectId
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 from app.database import db
 from app.utils.tracking_logs import insert_gps_log
 from app.utils.background_loader import background_loader
@@ -15,6 +15,53 @@ import time as _time
 from shapely.geometry import LineString, Point
 import threading
 from app.routes.websockets import broadcast_vehicle_location_update
+import json
+import base64
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import unpad
+
+# ===================== ENCRYPTION CONFIGURATION =====================
+# IMPORTANT: Keep this key in sync with IoT device
+ENCRYPTION_KEY = b'MySecureKey12345MySecureKey12345'  # Must be exactly 32 bytes for AES-256
+
+def decrypt_data(encrypted_payload: str) -> dict:
+    """
+    Decrypt AES-256-CBC encrypted data from IoT device
+    
+    Args:
+        encrypted_payload: Base64-encoded string containing IV + encrypted data
+        
+    Returns:
+        dict: Decrypted JSON payload
+        
+    Raises:
+        ValueError: If decryption fails
+    """
+    try:
+        # Decode from base64
+        combined = base64.b64decode(encrypted_payload)
+        
+        # Extract IV (first 16 bytes) and encrypted data (rest)
+        iv = combined[:16]
+        encrypted_data = combined[16:]
+        
+        # Decrypt using AES-256-CBC
+        cipher = AES.new(ENCRYPTION_KEY, AES.MODE_CBC, iv)
+        decrypted_padded = cipher.decrypt(encrypted_data)
+        
+        # Remove PKCS7 padding
+        decrypted = unpad(decrypted_padded, AES.block_size)
+        
+        # Parse JSON
+        payload = json.loads(decrypted.decode('utf-8'))
+        
+        print(f"✅ Successfully decrypted payload")
+        return payload
+        
+    except Exception as e:
+        print(f"❌ Decryption error: {e}")
+        raise ValueError(f"Failed to decrypt payload: {str(e)}")
+
 
 # Route cache and lock
 _route_cache = {"line": None, "last_refresh": 0}
@@ -41,7 +88,6 @@ async def get_route_line_from_db(route_id: Optional[str] = None):
                 else:
                     query["_id"] = route_id
             else:
-                # fallback: no route_id provided
                 print("⚠️ No route_id provided to get_route_line_from_db.")
                 _route_cache[cache_key] = {"line": None, "last_refresh": now}
                 return None
@@ -89,12 +135,17 @@ def snap_to_route(lat: float, lon: float, route: LineString):
 router = APIRouter()
 
 # Configuration variables for ML prediction logging
-ENABLE_GROUND_TRUTH_COMPARISON = False  # Change to False for production
+ENABLE_GROUND_TRUTH_COMPARISON = False
+
+
+class EncryptedRequest(BaseModel):
+    """Wrapper for encrypted IoT payload"""
+    encrypted_data: str
 
 
 class PredictionRequest(BaseModel):
-    # Required identifiers - these should come from the IoT device/client
-    device_id: str   # Unique identifier for the IoT device
+    # Required identifiers
+    device_id: str
     fleet_id: str
     Cn0DbHz: float
     Svid: int
@@ -107,39 +158,30 @@ class PredictionRequest(BaseModel):
     BiasX: float
     BiasY: float
     BiasZ: float
-    # New: accept speed in meters per second from IoT as 'speedMps'.
-    # For backward compatibility, still accept legacy 'speed' (kph) via alias to Speed.
-    # We'll normalize to m/s for the ML feature 'Speed'.
     SpeedMps: Optional[float] = Field(None, alias="speedMps")
-    # Legacy kph input; optional now. If provided, we'll convert to m/s.
     Speed: Optional[float] = Field(None, alias="speed")
 
-    # Option 1: Provide WLS ECEF coordinates directly (existing format)
+    # Option 1: WLS ECEF coordinates
     WlsPositionXEcefMeters: Optional[float] = None
     WlsPositionYEcefMeters: Optional[float] = None
     WlsPositionZEcefMeters: Optional[float] = None
 
-    # Option 2: Provide raw coordinates for automatic WLS conversion
+    # Option 2: Raw coordinates for automatic conversion
     raw_latitude: Optional[float] = None
     raw_longitude: Optional[float] = None
-    # altitude in meters above WGS84 ellipsoid
     raw_altitude: Optional[float] = None
 
-    # only used when ENABLE_GROUND_TRUTH_COMPARISON is True
+    # Ground truth (testing only)
     LatitudeDegrees_gt: Optional[float] = None
     LongitudeDegrees_gt: Optional[float] = None
 
     class Config:
-        # Allow either field name ('Speed') or alias ('speed') in input payloads
         allow_population_by_field_name = True
 
-    # Accept capitalized keys from devices (e.g., "Speed" or "SpeedMps") by normalizing
     @root_validator(pre=True)
     def normalize_speed_keys(cls, values):
-        # Map "Speed" -> "speed" if alias not present
         if "speed" not in values and "Speed" in values:
             values["speed"] = values["Speed"]
-        # Map "SpeedMps" -> "speedMps" if alias not present
         if "speedMps" not in values and "SpeedMps" in values:
             values["speedMps"] = values["SpeedMps"]
         return values
@@ -148,25 +190,15 @@ class PredictionRequest(BaseModel):
 def convert_latlon_to_ecef(latitude: float, longitude: float, altitude: float):
     """
     Convert latitude, longitude, altitude to ECEF coordinates
-
-    Args:
-        latitude: Latitude in decimal degrees
-        longitude: Longitude in decimal degrees  
-        altitude: Altitude in meters above WGS84 ellipsoid
-
-    Returns:
-        tuple: (x_ecef, y_ecef, z_ecef) in meters
     """
     from pyproj import Transformer
 
-    # Transform from WGS84 lat/lng/alt to ECEF
     transformer = Transformer.from_crs(
-        "EPSG:4326",  # WGS84 (latitude, longitude, altitude)
-        "EPSG:4978",  # ECEF (Earth-Centered, Earth-Fixed)
-        always_xy=True  # longitude, latitude order for input
+        "EPSG:4326",
+        "EPSG:4978",
+        always_xy=True
     )
 
-    # Transform coordinates (note: pyproj expects lon, lat, alt order)
     x_ecef, y_ecef, z_ecef = transformer.transform(
         longitude, latitude, altitude)
 
@@ -175,16 +207,46 @@ def convert_latlon_to_ecef(latitude: float, longitude: float, altitude: float):
 
 @router.get("/predict/status")
 async def get_prediction_status():
-    """Check if the prediction service ready"""
+    """Check if the prediction service is ready"""
     status = background_loader.get_status()
     return status
 
 
 @router.post("/predict")
-async def predict(request: PredictionRequest):
+async def predict(request: Union[EncryptedRequest, PredictionRequest]):
+    """
+    Handle sensor data from IoT device (encrypted or plain)
+    
+    Accepts either:
+    1. Encrypted: {"encrypted_data": "base64_string"}
+    2. Plain (for testing): full sensor payload
+    """
     start_time = time.time()
 
     try:
+        # ===================== DECRYPTION STEP =====================
+        if isinstance(request, EncryptedRequest):
+            print("🔐 Attempting to decrypt IoT payload...")
+            try:
+                decrypted_dict = decrypt_data(request.encrypted_data)
+                print(f"✅ Decryption successful. Payload keys: {list(decrypted_dict.keys())}")
+                prediction_request = PredictionRequest(**decrypted_dict)
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Decryption failed: {str(e)}"
+                )
+            except Exception as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid payload format after decryption: {str(e)}"
+                )
+        else:
+            # Plain request (testing)
+            print("📝 Using plain (non-encrypted) request")
+            prediction_request = request
+
+        # ===================== REST OF PREDICTION LOGIC =====================
         # Check if models are ready
         status = background_loader.get_status()
 
@@ -196,19 +258,17 @@ async def predict(request: PredictionRequest):
 
         if status["status"] == "loading":
             raise HTTPException(
-                status_code=202,  # Accepted, but processing
+                status_code=202,
                 detail="Models are still being downloaded and loaded in the background. Please try again in a moment."
             )
 
         if status["status"] == "not_started":
-            # Fallback: start loading if somehow not started
             background_loader.start_background_loading()
             raise HTTPException(
                 status_code=202,
                 detail="Model loading initiated. Please try again in a few minutes."
             )
 
-        # Get the ML manager (should be ready now)
         ml_manager = background_loader.get_ml_manager()
         if not ml_manager:
             raise HTTPException(
@@ -216,23 +276,23 @@ async def predict(request: PredictionRequest):
                 detail="Models are not ready yet. Please try again."
             )
 
-        # Validate input: either WLS ECEF coordinates OR raw lat/lng/alt must be provided
+        # Validate position coordinates
         wls_provided = all([
-            request.WlsPositionXEcefMeters is not None,
-            request.WlsPositionYEcefMeters is not None,
-            request.WlsPositionZEcefMeters is not None
+            prediction_request.WlsPositionXEcefMeters is not None,
+            prediction_request.WlsPositionYEcefMeters is not None,
+            prediction_request.WlsPositionZEcefMeters is not None
         ])
 
         raw_provided = all([
-            request.raw_latitude is not None,
-            request.raw_longitude is not None,
-            request.raw_altitude is not None
+            prediction_request.raw_latitude is not None,
+            prediction_request.raw_longitude is not None,
+            prediction_request.raw_altitude is not None
         ])
 
         if not wls_provided and not raw_provided:
             raise HTTPException(
                 status_code=400,
-                detail="Either WLS ECEF coordinates (WlsPositionXEcefMeters, WlsPositionYEcefMeters, WlsPositionZEcefMeters) OR raw coordinates (raw_latitude, raw_longitude, raw_altitude) must be provided."
+                detail="Either WLS ECEF coordinates or raw coordinates (raw_latitude, raw_longitude, raw_altitude) must be provided."
             )
 
         if wls_provided and raw_provided:
@@ -245,9 +305,9 @@ async def predict(request: PredictionRequest):
         if raw_provided:
             try:
                 wls_x, wls_y, wls_z = convert_latlon_to_ecef(
-                    request.raw_latitude,
-                    request.raw_longitude,
-                    request.raw_altitude
+                    prediction_request.raw_latitude,
+                    prediction_request.raw_longitude,
+                    prediction_request.raw_altitude
                 )
             except Exception as e:
                 raise HTTPException(
@@ -255,37 +315,29 @@ async def predict(request: PredictionRequest):
                     detail=f"Error converting raw coordinates to ECEF: {str(e)}"
                 )
         else:
-            # Use provided WLS ECEF coordinates
-            wls_x = request.WlsPositionXEcefMeters
-            wls_y = request.WlsPositionYEcefMeters
-            wls_z = request.WlsPositionZEcefMeters
+            wls_x = prediction_request.WlsPositionXEcefMeters
+            wls_y = prediction_request.WlsPositionYEcefMeters
+            wls_z = prediction_request.WlsPositionZEcefMeters
 
-        # Prepare input data with the ECEF coordinates; keep field names (e.g., 'Speed') for ML features.
-        # We'll compute 'Speed' in meters per second, preferring 'speedMps' if provided,
-        # otherwise converting legacy 'speed' (kph) to m/s.
-        input_data = request.dict()
-
-        # Use the converted or provided ECEF coordinates
+        # Prepare input data
+        input_data = prediction_request.dict()
         input_data['WlsPositionXEcefMeters'] = wls_x
         input_data['WlsPositionYEcefMeters'] = wls_y
         input_data['WlsPositionZEcefMeters'] = wls_z
 
-        # Normalize speed to meters per second for ML feature 'Speed'
+        # Normalize speed to m/s
         speed_mps: Optional[float] = None
         try:
-            if request.SpeedMps is not None:
-                speed_mps = float(request.SpeedMps)
-            elif request.Speed is not None:
-                # Legacy kph -> m/s
-                speed_mps = float(request.Speed) / 3.6
+            if prediction_request.SpeedMps is not None:
+                speed_mps = float(prediction_request.SpeedMps)
+            elif prediction_request.Speed is not None:
+                speed_mps = float(prediction_request.Speed) / 3.6
         except (TypeError, ValueError):
             speed_mps = None
 
-        # Default to 0.0 if not provided to avoid model errors
         if speed_mps is None:
             speed_mps = 0.0
 
-        # ML artifacts expect feature named 'Speed' -> now defined as m/s
         input_data['SpeedMps'] = speed_mps
 
         # Calculate derived features
@@ -293,11 +345,10 @@ async def predict(request: PredictionRequest):
             math.sin(math.radians(input_data['SvElevationDegrees']))
         input_data['WLS_Distance'] = math.sqrt(wls_x**2 + wls_y**2 + wls_z**2)
 
-        # Models are loaded, prediction should be fast
+        # Get ML prediction
         prediction = ml_manager.predict(input_data)
 
-        # Get WLS latitude and longitude from input (ground truth columns are not present, so use WLS ECEF)
-        # Use pyproj to convert ECEF to lat/lon
+        # Convert ECEF back to lat/lon
         from pyproj import Transformer
         transformer = Transformer.from_crs(
             "EPSG:4978", "EPSG:4326", always_xy=True)
@@ -310,23 +361,19 @@ async def predict(request: PredictionRequest):
         corrected_lat = wls_lat + prediction[0]
         corrected_lng = wls_lng + prediction[1]
 
-        # --- Scalable route snapping integration ---
+        # Route snapping
         snapped_lat, snapped_lng = corrected_lat, corrected_lng
         snapped = False
         try:
-            # Try to get route_id from payload, else from vehicle entity
-            route_id = getattr(request, "route_id", None)
+            route_id = getattr(prediction_request, "route_id", None)
             if not route_id:
-                # Look up vehicle by device_id
                 vehicle = db.vehicles.find_one(
-                    {"device_id": request.device_id})
+                    {"device_id": prediction_request.device_id})
                 route_id = None
                 if vehicle:
-                    # Use new format: current_route.route_id
                     current_route = vehicle.get("current_route")
                     if current_route and "route_id" in current_route:
                         route_id = current_route["route_id"]
-                    # Fallback to top-level route_id if needed
                     if not route_id:
                         route_id = vehicle.get("route_id")
             route_line = await get_route_line_from_db(route_id=route_id)
@@ -341,10 +388,7 @@ async def predict(request: PredictionRequest):
         except Exception as e:
             print(f"⚠️ Route snapping failed: {e}")
 
-        # Calculate response time
         response_time_ms = (time.time() - start_time) * 1000
-
-        # Minimal response - only corrected coordinates
 
         response_data = {
             "latitude": snapped_lat,
@@ -352,43 +396,13 @@ async def predict(request: PredictionRequest):
             "snapped": snapped
         }
 
-        # # Update vehicle location in the vehicles collection with snapped coordinates
-        # try:
-        #     dev_id = str(request.device_id).strip()
-        #     filter_query = {"$or": [{"device_id": dev_id}]}
-        #     if ObjectId.is_valid(dev_id):
-        #         filter_query["$or"].append({"device_id": ObjectId(dev_id)})
-
-        #     update_result = db.vehicles.update_one(
-        #         filter_query,
-        #         {
-        #             "$set": {
-        #                 "location": {
-        #                     "latitude": float(snapped_lat),
-        #                     "longitude": float(snapped_lng)
-        #                 }
-        #             }
-        #         }
-        #     )
-
-        #     if update_result.matched_count > 0:
-        #         print(
-        #             f"🚗 Vehicle {request.device_id} snapped location updated: lat={snapped_lat:.6f}, lng={snapped_lng:.6f}")
-        #     else:
-        #         print(
-        #             f"⚠️ Warning: Vehicle {request.device_id} not found in vehicles collection")
-
-        # except Exception as e:
-        #     print(f"⚠️ Warning: Failed to update vehicle location: {e}")
-
-        # Update vehicle location in the vehicles collection with snapped coordinates
+        # Update vehicle location
         try:
-            dev_id = str(request.device_id).strip()
+            dev_id = str(prediction_request.device_id).strip()
             filter_query = {"$or": [{"device_id": dev_id}]}
             if ObjectId.is_valid(dev_id):
                 filter_query["$or"].append({"device_id": ObjectId(dev_id)})
 
-            # Find the vehicle to get its ID
             vehicle = db.vehicles.find_one(filter_query)
             
             if vehicle:
@@ -407,58 +421,50 @@ async def predict(request: PredictionRequest):
                 )
 
                 if update_result.matched_count > 0:
-                    print(f"🚗 Vehicle {request.device_id} snapped location updated: lat={snapped_lat:.6f}, lng={snapped_lng:.6f}")
+                    print(f"🚗 Vehicle {prediction_request.device_id} snapped location updated: lat={snapped_lat:.6f}, lng={snapped_lng:.6f}")
                     
-                    # BROADCAST THE UPDATE TO WEBSOCKET SUBSCRIBERS
                     await broadcast_vehicle_location_update(
                         vehicle_id=vehicle_id,
                         latitude=float(snapped_lat),
                         longitude=float(snapped_lng),
-                        device_id=request.device_id
+                        device_id=prediction_request.device_id
                     )
             else:
-                print(f"⚠️ Warning: Vehicle {request.device_id} not found in vehicles collection")
+                print(f"⚠️ Warning: Vehicle {prediction_request.device_id} not found in vehicles collection")
 
         except Exception as e:
             print(f"⚠️ Warning: Failed to update vehicle location: {e}")
 
-        # Log SUCCESSFUL ML prediction to tracking logs
-        # This only executes if prediction was successful (no exceptions thrown above)
+        # Log successful prediction
         try:
-            # For logging, use original raw altitude (not corrected since ML doesn't correct altitude)
-            original_altitude = request.raw_altitude if request.raw_altitude is not None else 0.0
+            original_altitude = prediction_request.raw_altitude if prediction_request.raw_altitude is not None else 0.0
 
             corrected_coordinates = {
                 "latitude": corrected_lat,
                 "longitude": corrected_lng,
-                "altitude": original_altitude  # Use original altitude, not corrected
+                "altitude": original_altitude
             }
 
-            # Add moved (snapped) point based on declared routes
             moved_point = {
                 "latitude": snapped_lat,
                 "longitude": snapped_lng
             }
 
-            # Convert request to dict using aliases to store the original IoT payload (e.g., speedMps)
-            ml_request_data = request.dict(by_alias=True)
-            # Copy ECEF values into the iot_payload for full self-containment
+            ml_request_data = prediction_request.dict(by_alias=True)
             ml_request_data["WlsPositionXEcefMeters"] = wls_x
             ml_request_data["WlsPositionYEcefMeters"] = wls_y
             ml_request_data["WlsPositionZEcefMeters"] = wls_z
 
-            # Prepare ECEF coordinates used by backend for logging
             ecef_used = {
                 "WlsPositionXEcefMeters": wls_x,
                 "WlsPositionYEcefMeters": wls_y,
                 "WlsPositionZEcefMeters": wls_z,
             }
 
-            # Insert comprehensive tracking log for this SUCCESSFUL prediction
             log_id = insert_gps_log(
                 db=db,
-                device_id=request.device_id,
-                fleet_id=request.fleet_id,
+                device_id=prediction_request.device_id,
+                fleet_id=prediction_request.fleet_id,
                 ml_request_data=ml_request_data,
                 corrected_coordinates=corrected_coordinates,
                 ecef_coordinates=ecef_used,
@@ -466,22 +472,21 @@ async def predict(request: PredictionRequest):
             )
 
             print(f"✅ Successful ML prediction logged with ID: {log_id}")
+            print(f"   📊 Stored in DB: device_id={prediction_request.device_id}, fleet_id={prediction_request.fleet_id}")
+            print(f"   📊 Corrected coordinates: lat={corrected_lat:.6f}, lng={corrected_lng:.6f}")
 
         except Exception as e:
-            # Don't fail the prediction response if logging fails, but log the error
             print(f"⚠️ Warning: Failed to log successful ML prediction: {e}")
-            # Prediction still succeeds, just logging failed        # Add ground truth comparison ONLY if enabled and data provided
-        if ENABLE_GROUND_TRUTH_COMPARISON and request.LatitudeDegrees_gt is not None and request.LongitudeDegrees_gt is not None:
-            gt_lat = request.LatitudeDegrees_gt
-            gt_lng = request.LongitudeDegrees_gt
 
-            # Simple error calculation
+        if ENABLE_GROUND_TRUTH_COMPARISON and prediction_request.LatitudeDegrees_gt is not None and prediction_request.LongitudeDegrees_gt is not None:
+            gt_lat = prediction_request.LatitudeDegrees_gt
+            gt_lng = prediction_request.LongitudeDegrees_gt
+
             lat_error_m = abs(corrected_lat - gt_lat) * 111320
             lng_error_m = abs(corrected_lng - gt_lng) * 111320 * \
                 math.cos(math.radians(abs(corrected_lat)))
             total_error_m = math.sqrt(lat_error_m**2 + lng_error_m**2)
 
-            # Add simple comparison to response
             response_data["testing_analysis"] = {
                 "ground_truth_lat": gt_lat,
                 "ground_truth_lng": gt_lng,
@@ -489,10 +494,11 @@ async def predict(request: PredictionRequest):
             }
 
         return response_data
+        
     except HTTPException:
-        # Re-raise HTTP exceptions as-is
         raise
     except Exception as e:
         error_msg = str(e)
+        print(f"❌ Prediction error: {error_msg}")
         raise HTTPException(
             status_code=500, detail=f"Prediction error: {error_msg}")
