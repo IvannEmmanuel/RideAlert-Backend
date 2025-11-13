@@ -22,42 +22,44 @@ from Crypto.Util.Padding import unpad
 
 # ===================== ENCRYPTION CONFIGURATION =====================
 # IMPORTANT: Keep this key in sync with IoT device
-ENCRYPTION_KEY = b'MySecureKey12345MySecureKey12345'  # Must be exactly 32 bytes for AES-256
+# Must be exactly 32 bytes for AES-256
+ENCRYPTION_KEY = b'MySecureKey12345MySecureKey12345'
+
 
 def decrypt_data(encrypted_payload: str) -> dict:
     """
     Decrypt AES-256-CBC encrypted data from IoT device
-    
+
     Args:
         encrypted_payload: Base64-encoded string containing IV + encrypted data
-        
+
     Returns:
         dict: Decrypted JSON payload
-        
+
     Raises:
         ValueError: If decryption fails
     """
     try:
         # Decode from base64
         combined = base64.b64decode(encrypted_payload)
-        
+
         # Extract IV (first 16 bytes) and encrypted data (rest)
         iv = combined[:16]
         encrypted_data = combined[16:]
-        
+
         # Decrypt using AES-256-CBC
         cipher = AES.new(ENCRYPTION_KEY, AES.MODE_CBC, iv)
         decrypted_padded = cipher.decrypt(encrypted_data)
-        
+
         # Remove PKCS7 padding
         decrypted = unpad(decrypted_padded, AES.block_size)
-        
+
         # Parse JSON
         payload = json.loads(decrypted.decode('utf-8'))
-        
+
         print(f"✅ Successfully decrypted payload")
         return payload
-        
+
     except Exception as e:
         print(f"❌ Decryption error: {e}")
         raise ValueError(f"Failed to decrypt payload: {str(e)}")
@@ -136,6 +138,9 @@ router = APIRouter()
 
 # Configuration variables for ML prediction logging
 ENABLE_GROUND_TRUTH_COMPARISON = False
+
+# Toggle for route snapping (1 = enabled, 0 = disabled)
+ENABLE_ROUTE_SNAPPING = 0
 
 
 class EncryptedRequest(BaseModel):
@@ -216,7 +221,7 @@ async def get_prediction_status():
 async def predict(request: Union[EncryptedRequest, PredictionRequest]):
     """
     Handle sensor data from IoT device (encrypted or plain)
-    
+
     Accepts either:
     1. Encrypted: {"encrypted_data": "base64_string"}
     2. Plain (for testing): full sensor payload
@@ -229,7 +234,8 @@ async def predict(request: Union[EncryptedRequest, PredictionRequest]):
             print("🔐 Attempting to decrypt IoT payload...")
             try:
                 decrypted_dict = decrypt_data(request.encrypted_data)
-                print(f"✅ Decryption successful. Payload keys: {list(decrypted_dict.keys())}")
+                print(
+                    f"✅ Decryption successful. Payload keys: {list(decrypted_dict.keys())}")
                 prediction_request = PredictionRequest(**decrypted_dict)
             except ValueError as e:
                 raise HTTPException(
@@ -361,32 +367,36 @@ async def predict(request: Union[EncryptedRequest, PredictionRequest]):
         corrected_lat = wls_lat + prediction[0]
         corrected_lng = wls_lng + prediction[1]
 
-        # Route snapping
+        # Route snapping (toggle-able)
         snapped_lat, snapped_lng = corrected_lat, corrected_lng
         snapped = False
-        try:
-            route_id = getattr(prediction_request, "route_id", None)
-            if not route_id:
-                vehicle = db.vehicles.find_one(
-                    {"device_id": prediction_request.device_id})
-                route_id = None
-                if vehicle:
-                    current_route = vehicle.get("current_route")
-                    if current_route and "route_id" in current_route:
-                        route_id = current_route["route_id"]
-                    if not route_id:
-                        route_id = vehicle.get("route_id")
-            route_line = await get_route_line_from_db(route_id=route_id)
-            if route_line:
-                snapped_lat, snapped_lng = snap_to_route(
-                    corrected_lat, corrected_lng, route_line)
-                snapped = True
-                print(
-                    f"✅ Snapped to route: ({snapped_lat}, {snapped_lng}) [route_id={route_id}]")
-            else:
-                print("⚠️ No route available, using raw corrected coordinates.")
-        except Exception as e:
-            print(f"⚠️ Route snapping failed: {e}")
+        if ENABLE_ROUTE_SNAPPING:
+            try:
+                route_id = getattr(prediction_request, "route_id", None)
+                if not route_id:
+                    vehicle = db.vehicles.find_one(
+                        {"device_id": prediction_request.device_id})
+                    route_id = None
+                    if vehicle:
+                        current_route = vehicle.get("current_route")
+                        if current_route and "route_id" in current_route:
+                            route_id = current_route["route_id"]
+                        if not route_id:
+                            route_id = vehicle.get("route_id")
+                route_line = await get_route_line_from_db(route_id=route_id)
+                if route_line:
+                    snapped_lat, snapped_lng = snap_to_route(
+                        corrected_lat, corrected_lng, route_line)
+                    snapped = True
+                    print(
+                        f"✅ Snapped to route: ({snapped_lat}, {snapped_lng}) [route_id={route_id}]")
+                else:
+                    print("⚠️ No route available, using raw corrected coordinates.")
+            except Exception as e:
+                print(f"⚠️ Route snapping failed: {e}")
+        else:
+            print(
+                "ℹ️ Route snapping disabled (ENABLE_ROUTE_SNAPPING=0); using corrected coordinates.")
 
         response_time_ms = (time.time() - start_time) * 1000
 
@@ -404,10 +414,10 @@ async def predict(request: Union[EncryptedRequest, PredictionRequest]):
                 filter_query["$or"].append({"device_id": ObjectId(dev_id)})
 
             vehicle = db.vehicles.find_one(filter_query)
-            
+
             if vehicle:
                 vehicle_id = str(vehicle["_id"])
-                
+
                 update_result = db.vehicles.update_one(
                     filter_query,
                     {
@@ -421,8 +431,9 @@ async def predict(request: Union[EncryptedRequest, PredictionRequest]):
                 )
 
                 if update_result.matched_count > 0:
-                    print(f"🚗 Vehicle {prediction_request.device_id} snapped location updated: lat={snapped_lat:.6f}, lng={snapped_lng:.6f}")
-                    
+                    print(
+                        f"🚗 Vehicle {prediction_request.device_id} snapped location updated: lat={snapped_lat:.6f}, lng={snapped_lng:.6f}")
+
                     await broadcast_vehicle_location_update(
                         vehicle_id=vehicle_id,
                         latitude=float(snapped_lat),
@@ -430,7 +441,8 @@ async def predict(request: Union[EncryptedRequest, PredictionRequest]):
                         device_id=prediction_request.device_id
                     )
             else:
-                print(f"⚠️ Warning: Vehicle {prediction_request.device_id} not found in vehicles collection")
+                print(
+                    f"⚠️ Warning: Vehicle {prediction_request.device_id} not found in vehicles collection")
 
         except Exception as e:
             print(f"⚠️ Warning: Failed to update vehicle location: {e}")
@@ -472,8 +484,10 @@ async def predict(request: Union[EncryptedRequest, PredictionRequest]):
             )
 
             print(f"✅ Successful ML prediction logged with ID: {log_id}")
-            print(f"   📊 Stored in DB: device_id={prediction_request.device_id}, fleet_id={prediction_request.fleet_id}")
-            print(f"   📊 Corrected coordinates: lat={corrected_lat:.6f}, lng={corrected_lng:.6f}")
+            print(
+                f"   📊 Stored in DB: device_id={prediction_request.device_id}, fleet_id={prediction_request.fleet_id}")
+            print(
+                f"   📊 Corrected coordinates: lat={corrected_lat:.6f}, lng={corrected_lng:.6f}")
 
         except Exception as e:
             print(f"⚠️ Warning: Failed to log successful ML prediction: {e}")
@@ -494,7 +508,7 @@ async def predict(request: Union[EncryptedRequest, PredictionRequest]):
             }
 
         return response_data
-        
+
     except HTTPException:
         raise
     except Exception as e:
