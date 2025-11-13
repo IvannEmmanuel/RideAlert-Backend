@@ -6,11 +6,11 @@ import os
 import math
 from bson import ObjectId
 from datetime import datetime
-from typing import Optional, Union
+from typing import Optional
 from app.database import db
 from app.utils.tracking_logs import insert_gps_log
 from app.utils.background_loader import background_loader
-from pydantic import BaseModel, Field, root_validator
+from pydantic import BaseModel, Field, root_validator, ValidationError
 import time as _time
 from shapely.geometry import LineString, Point
 import threading
@@ -218,39 +218,35 @@ async def get_prediction_status():
 
 
 @router.post("/predict")
-async def predict(request: Union[EncryptedRequest, PredictionRequest]):
+async def predict(request: EncryptedRequest):
     """
-    Handle sensor data from IoT device (encrypted or plain)
+    Handle sensor data from IoT device (encrypted only)
 
-    Accepts either:
-    1. Encrypted: {"encrypted_data": "base64_string"}
-    2. Plain (for testing): full sensor payload
+    Accepts:
+    - {"encrypted_data": "base64_string"}
     """
     start_time = time.time()
 
     try:
         # ===================== DECRYPTION STEP =====================
-        if isinstance(request, EncryptedRequest):
-            print("🔐 Attempting to decrypt IoT payload...")
-            try:
-                decrypted_dict = decrypt_data(request.encrypted_data)
-                print(
-                    f"✅ Decryption successful. Payload keys: {list(decrypted_dict.keys())}")
-                prediction_request = PredictionRequest(**decrypted_dict)
-            except ValueError as e:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Decryption failed: {str(e)}"
-                )
-            except Exception as e:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid payload format after decryption: {str(e)}"
-                )
-        else:
-            # Plain request (testing)
-            print("📝 Using plain (non-encrypted) request")
-            prediction_request = request
+        print("🔐 Attempting to decrypt IoT payload...")
+        try:
+            decrypted_dict = decrypt_data(request.encrypted_data)
+            print(
+                f"✅ Decryption successful. Payload keys: {list(decrypted_dict.keys())}")
+            prediction_request = PredictionRequest(**decrypted_dict)
+        except ValueError as e:
+            # Covers decryption failures, bad padding, invalid base64/IV, or JSON parse issues
+            raise HTTPException(
+                status_code=400,
+                detail=f"Decryption failed: {str(e)}"
+            )
+        except ValidationError as e:
+            # Decrypted payload parsed but failed schema validation
+            raise HTTPException(
+                status_code=422,
+                detail=e.errors()
+            )
 
         # ===================== REST OF PREDICTION LOGIC =====================
         # Check if models are ready
